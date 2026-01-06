@@ -26,13 +26,15 @@ RUN npm run build
 
 # --- AI Service Setup ---
 WORKDIR /app/ai_service
-# Install Python dependencies
-# We use --break-system-packages if needed, or better, just install
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+# Create and use a virtual environment
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV PYTHON_PATH=/opt/venv/bin/python3
 
 # Expose port
 EXPOSE 3001

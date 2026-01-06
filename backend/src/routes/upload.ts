@@ -302,6 +302,7 @@ async function logVerification(
 }
 
 async function getPythonCommand(): Promise<string> {
+  if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH;
   const { execSync } = await import('child_process');
   try { execSync('python3 --version', { stdio: 'ignore' }); return 'python3'; }
   catch (e) {
