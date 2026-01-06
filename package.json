@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node ./scripts/generate-version.js && vite build",
     "build:dev": "vite build --mode development",
+    "generate-version": "node ./scripts/generate-version.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
