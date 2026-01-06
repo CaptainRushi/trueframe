@@ -1,0 +1,10 @@
+numpy
+opencv-python
+scipy
+onnxruntime
+Pillow
+requests
+tenacity
+torch
+transformers
+scikit-image

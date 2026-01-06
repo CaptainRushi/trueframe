@@ -1,51 +1,8 @@
 import { motion } from "framer-motion";
 import { Heart, MessageCircle, UserPlus, ShieldCheck, Clock } from "lucide-react";
-import user1 from "@/assets/user-1.jpg";
-import user2 from "@/assets/user-2.jpg";
-import user3 from "@/assets/user-3.jpg";
 
-const notifications = [
-  {
-    id: 1,
-    type: "like",
-    user: { name: "Alana Maesya", avatar: user1 },
-    message: "liked your photo",
-    time: "2m ago",
-    isVerified: true,
-  },
-  {
-    id: 2,
-    type: "follow",
-    user: { name: "Marcus Cole", avatar: user3 },
-    message: "started following you",
-    time: "15m ago",
-    isVerified: true,
-  },
-  {
-    id: 3,
-    type: "comment",
-    user: { name: "Maya Chen", avatar: user2 },
-    message: "commented: \"Amazing shot! 📸\"",
-    time: "1h ago",
-    isVerified: true,
-  },
-  {
-    id: 4,
-    type: "verification",
-    user: null,
-    message: "Your latest post was verified as authentic",
-    time: "2h ago",
-    isVerified: true,
-  },
-  {
-    id: 5,
-    type: "like",
-    user: { name: "Sofia Rodriguez", avatar: user1 },
-    message: "and 23 others liked your photo",
-    time: "3h ago",
-    isVerified: true,
-  },
-];
+// TODO: Fetch real notifications from API
+const notifications: any[] = [];
 
 const typeIcons = {
   like: Heart,

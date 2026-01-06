@@ -1,0 +1,9 @@
+backend/
+ai_service/
+Dockerfile
+.env
+.env.local
+node_modules/
+dist/
+tmp/
+storage/

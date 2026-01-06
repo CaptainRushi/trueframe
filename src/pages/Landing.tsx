@@ -1,7 +1,9 @@
 import { motion } from "framer-motion";
 import { ShieldCheck, Lock, Sparkles, ChevronRight } from "lucide-react";
-import { Link } from "react-router-dom";
-import heroModel from "@/assets/hero-model.jpg";
+import { Link, useNavigate } from "react-router-dom";
+import heroModel from "@/assets/hero-man.png";
+import { useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 
 const features = [
   {
@@ -22,6 +24,19 @@ const features = [
 ];
 
 export default function Landing() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (!supabase) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        navigate("/feed", { replace: true });
+      }
+    };
+    checkAuth();
+  }, [navigate]);
+
   return (
     <div className="min-h-screen gradient-hero overflow-hidden">
       <div className="container mx-auto px-6 py-8">
@@ -36,7 +51,7 @@ export default function Landing() {
             <span className="text-xl font-bold text-primary-foreground">TrueFrame</span>
           </div>
           <Link
-            to="/feed"
+            to="/login"
             className="text-sm font-medium text-primary-foreground/80 hover:text-primary-foreground transition-colors"
           >
             Sign In
@@ -96,7 +111,7 @@ export default function Landing() {
               transition={{ delay: 0.7 }}
             >
               <Link
-                to="/feed"
+                to="/login"
                 className="inline-flex items-center gap-3 px-8 py-4 bg-foreground text-background rounded-full font-semibold text-lg shadow-elevated hover:shadow-lg transition-all hover:scale-105"
               >
                 <Lock className="w-5 h-5" />

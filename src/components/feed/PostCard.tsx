@@ -1,10 +1,15 @@
-import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal } from "lucide-react";
+import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { supabase } from "@/lib/supabase";
+
+import { ShareModal } from "@/components/share/ShareModal";
+import { BACKEND_URL } from "@/lib/api";
 
 interface PostCardProps {
   id: string;
+  userId: string;
   userAvatar: string;
   username: string;
   image: string;
@@ -13,25 +18,127 @@ interface PostCardProps {
   comments: number;
   timestamp: string;
   isVerified?: boolean;
+  onDelete?: (postId: string) => void;
 }
 
 export function PostCard({
+  id,
+  userId,
   userAvatar,
   username,
   image,
   caption,
-  likes,
-  comments,
+  likes: initialLikes,
+  comments: initialComments,
   timestamp,
   isVerified = true,
+  onDelete,
 }: PostCardProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
-  const [likeCount, setLikeCount] = useState(likes);
+  const [likeCount, setLikeCount] = useState(initialLikes);
+  const [commentCount, setCommentCount] = useState(initialComments);
+  const [isOwner, setIsOwner] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
-  const handleLike = () => {
-    setIsLiked(!isLiked);
-    setLikeCount(isLiked ? likeCount - 1 : likeCount + 1);
+  useEffect(() => {
+    checkLikeStatus();
+    checkOwnership();
+  }, [id, userId]); // Added userId to dependency array for checkOwnership
+
+  const checkOwnership = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.id === userId) {
+        setIsOwner(true);
+      }
+    } catch (e) {
+      console.error('Failed to check ownership', e);
+    }
+  };
+
+  const checkLikeStatus = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const res = await fetch(`${BACKEND_URL}/api/social/like/${id}/status`, {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setIsLiked(data.liked);
+      }
+    } catch (e) {
+      console.error('Failed to check like status', e);
+    }
+  };
+
+  const handleLike = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('Please log in to like posts');
+        return;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/api/social/like/${id}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setIsLiked(data.liked);
+        setLikeCount(prev => data.liked ? prev + 1 : prev - 1);
+      }
+    } catch (e) {
+      console.error('Failed to toggle like', e);
+    }
+  };
+
+  const handleShare = () => {
+    if (!isVerified) return; // Prevent sharing unverified content
+    setShowShareModal(true);
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this post? This action cannot be undone.')) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('Please log in to delete posts');
+        return;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/api/social/post/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+
+      if (res.ok) {
+        alert('Post deleted successfully');
+        if (onDelete) {
+          onDelete(id);
+        }
+      } else {
+        const error = await res.json();
+        alert(error.error || 'Failed to delete post');
+      }
+    } catch (e) {
+      console.error('Failed to delete post', e);
+      alert('Failed to delete post');
+    } finally {
+      setIsDeleting(false);
+      setShowMenu(false);
+    }
   };
 
   return (
@@ -60,9 +167,28 @@ export function PostCard({
             <p className="text-xs text-muted-foreground">@{username.toLowerCase()}</p>
           </div>
         </div>
-        <button className="p-2 hover:bg-muted rounded-full transition-colors">
-          <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
-        </button>
+        {isOwner && (
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+            >
+              <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-2 bg-card border border-border rounded-lg shadow-lg overflow-hidden z-10">
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors w-full text-left disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {isDeleting ? 'Deleting...' : 'Delete Post'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Image */}
@@ -90,25 +216,23 @@ export function PostCard({
               className="flex items-center gap-1"
             >
               <Heart
-                className={`w-6 h-6 transition-colors ${
-                  isLiked ? "text-destructive fill-destructive" : "text-foreground"
-                }`}
+                className={`w-6 h-6 transition-colors ${isLiked ? "text-destructive fill-destructive" : "text-foreground"
+                  }`}
               />
               <span className="text-sm font-medium">{likeCount.toLocaleString()}</span>
             </motion.button>
             <button className="flex items-center gap-1">
               <MessageCircle className="w-6 h-6 text-foreground" />
-              <span className="text-sm font-medium">{comments}</span>
+              <span className="text-sm font-medium">{commentCount}</span>
             </button>
-            <button>
+            <button onClick={handleShare} disabled={!isVerified} className={!isVerified ? "opacity-30 cursor-not-allowed" : ""}>
               <Send className="w-6 h-6 text-foreground" />
             </button>
           </div>
           <motion.button whileTap={{ scale: 0.8 }} onClick={() => setIsSaved(!isSaved)}>
             <Bookmark
-              className={`w-6 h-6 transition-colors ${
-                isSaved ? "text-primary fill-primary" : "text-foreground"
-              }`}
+              className={`w-6 h-6 transition-colors ${isSaved ? "text-primary fill-primary" : "text-foreground"
+                }`}
             />
           </motion.button>
         </div>
@@ -121,6 +245,11 @@ export function PostCard({
 
         <p className="text-xs text-muted-foreground uppercase">{timestamp}</p>
       </div>
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        post={{ id, caption, verification_status: isVerified ? 'APPROVED' : 'PENDING' }}
+      />
     </motion.article>
   );
 }

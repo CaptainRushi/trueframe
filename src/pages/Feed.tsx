@@ -1,100 +1,108 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Bell, MessageSquare, ShieldCheck } from "lucide-react";
-import { StoryCircle } from "@/components/feed/StoryCircle";
+import { Bell, MessageSquare, ShieldCheck, Loader2 } from "lucide-react";
 import { PostCard } from "@/components/feed/PostCard";
-import user1 from "@/assets/user-1.jpg";
-import user2 from "@/assets/user-2.jpg";
-import user3 from "@/assets/user-3.jpg";
-import post1 from "@/assets/post-1.jpg";
-import post2 from "@/assets/post-2.jpg";
 
-const stories = [
-  { image: user1, username: "Alana", isLive: true },
-  { image: user2, username: "Maya" },
-  { image: user3, username: "Marcus" },
-  { image: user1, username: "Sofia" },
-  { image: user2, username: "Emma" },
-];
-
-const posts = [
-  {
-    id: "1",
-    userAvatar: user1,
-    username: "Alana Maesya",
-    image: post1,
-    caption: "Living my best life ☀️ #authentic #trueframe #verified",
-    likes: 1245,
-    comments: 173,
-    timestamp: "2 hours ago",
-  },
-  {
-    id: "2",
-    userAvatar: user3,
-    username: "Marcus Cole",
-    image: post2,
-    caption: "Golden hour vibes 🌅 Nothing beats a real sunset. #nofilter #trueframe",
-    likes: 892,
-    comments: 64,
-    timestamp: "5 hours ago",
-  },
-];
+import { BACKEND_URL } from "@/lib/api";
 
 export default function Feed() {
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchFeed();
+  }, []);
+
+  const fetchFeed = async () => {
+    try {
+      console.log('[FEED] Fetching from:', `${BACKEND_URL}/api/feed`);
+      const res = await fetch(`${BACKEND_URL}/api/feed`);
+      console.log('[FEED] Response status:', res.status, res.statusText);
+
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[FEED] Data received:', data);
+        console.log('[FEED] Posts count:', data.posts?.length || 0);
+        setPosts(data.posts || []);
+      } else {
+        const errorText = await res.text();
+        console.error('[FEED] Error response:', errorText);
+      }
+    } catch (e) {
+      console.error("[FEED] Failed to fetch feed", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePostDelete = (postId: string) => {
+    setPosts(prevPosts => prevPosts.filter(post => post.id !== postId));
+  };
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-20">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
-        <div className="flex items-center justify-between p-4 max-w-lg mx-auto">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-7 h-7 text-primary" />
-            <span className="text-xl font-bold text-foreground">TrueFrame</span>
+            <ShieldCheck className="w-6 h-6 text-primary" />
+            <h1 className="text-xl font-black tracking-tight">Truth Feed</h1>
           </div>
           <div className="flex items-center gap-2">
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="p-2 hover:bg-muted rounded-full transition-colors"
+              className="p-2 hover:bg-muted rounded-full transition-colors relative"
             >
               <Bell className="w-6 h-6 text-foreground" />
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-2 hover:bg-muted rounded-full transition-colors"
-            >
-              <MessageSquare className="w-6 h-6 text-foreground" />
+              <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-background" />
             </motion.button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto">
-        {/* Stories */}
-        <motion.section
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 overflow-x-auto"
-        >
-          <div className="flex gap-4">
-            {stories.map((story, index) => (
-              <StoryCircle key={index} {...story} />
-            ))}
+      <main className="max-w-lg mx-auto py-4">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            <p className="text-muted-foreground animate-pulse">Computing Truth Feed...</p>
           </div>
-        </motion.section>
-
-        {/* Feed */}
-        <section className="space-y-6 px-4 pb-8">
-          {posts.map((post, index) => (
-            <motion.div
-              key={post.id}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.15 }}
-            >
-              <PostCard {...post} />
-            </motion.div>
-          ))}
-        </section>
+        ) : posts.length > 0 ? (
+          <section className="space-y-6 px-4 pb-20">
+            {posts.map((post, index) => (
+              <motion.div
+                key={post.id}
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+              >
+                <PostCard
+                  id={post.id}
+                  userId={post.user_id}
+                  userAvatar={post.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.profiles?.username || 'deleted'}`}
+                  username={post.profiles?.display_name || post.profiles?.username || "Deleted User"}
+                  image={post.media_url}
+                  caption={post.caption || ""}
+                  likes={post.like_count || 0}
+                  comments={post.comment_count || 0}
+                  timestamp={new Date(post.created_at).toLocaleDateString()}
+                  isVerified={post.verification?.verdict === 'REAL'}
+                  onDelete={handlePostDelete}
+                />
+              </motion.div>
+            ))}
+          </section>
+        ) : (
+          <div className="text-center py-20 px-8">
+            <div className="bg-primary/5 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <ShieldCheck className="w-10 h-10 text-primary/40" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">No Verified Content Yet</h2>
+            <p className="text-muted-foreground max-w-xs mx-auto">
+              Be the first to upload a verified authentic piece of media to the platform.
+            </p>
+          </div>
+        )}
       </main>
     </div>
   );

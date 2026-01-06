@@ -1,4 +1,4 @@
-import { Home, Search, PlusSquare, Heart, User } from "lucide-react";
+import { Home, Search, PlusSquare, BarChart3, User } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 
@@ -6,7 +6,7 @@ const navItems = [
   { icon: Home, label: "Home", path: "/feed" },
   { icon: Search, label: "Explore", path: "/explore" },
   { icon: PlusSquare, label: "Upload", path: "/upload" },
-  { icon: Heart, label: "Activity", path: "/notifications" },
+  { icon: BarChart3, label: "Dashboard", path: "/dashboard" },
   { icon: User, label: "Profile", path: "/profile" },
 ];
 
@@ -41,9 +41,8 @@ export function BottomNav() {
                     whileTap={{ scale: 0.95 }}
                   >
                     <item.icon
-                      className={`w-6 h-6 transition-colors ${
-                        isActive ? "text-primary" : "text-muted-foreground"
-                      }`}
+                      className={`w-6 h-6 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"
+                        }`}
                       fill={isActive ? "currentColor" : "none"}
                     />
                   </motion.div>

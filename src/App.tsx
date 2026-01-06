@@ -10,6 +10,10 @@ import Explore from "./pages/Explore";
 import Upload from "./pages/Upload";
 import Profile from "./pages/Profile";
 import Notifications from "./pages/Notifications";
+import Dashboard from "./pages/Dashboard";
+import Login from "./pages/Login";
+import PostPage from "./pages/PostPage";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -19,15 +23,20 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route element={<AppLayout />}>
-            <Route path="/feed" element={<Feed />} />
-            <Route path="/explore" element={<Explore />} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/notifications" element={<Notifications />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/post/:postId" element={<PostPage />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppLayout />}>
+              <Route path="/feed" element={<Feed />} />
+              <Route path="/explore" element={<Explore />} />
+              <Route path="/upload" element={<Upload />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/profile/:username?" element={<Profile />} />
+              <Route path="/notifications" element={<Notifications />} />
+            </Route>
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
