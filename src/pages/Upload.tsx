@@ -12,9 +12,16 @@ import {
   FileImage,
   ArrowRight,
   ShieldAlert,
-  Lock
+  Lock,
+  Brain,
+  Fingerprint,
+  Clock,
+  FileSearch,
+  Camera,
+  ImageIcon
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { AuthenticityLabel } from '@/components/ui/AuthenticityLabel';
 
 import { BACKEND_URL } from '@/lib/api';
 
@@ -27,7 +34,57 @@ export default function Upload() {
   const [state, setState] = useState<VerificationState>('idle');
   const [result, setResult] = useState<any>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [uploadMode, setUploadMode] = useState<'GALLERY' | 'CAMERA'>('GALLERY');
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (e) {
+      console.error('Camera access denied', e);
+      setUploadMode('GALLERY');
+    }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const capturedFile = new File([blob], `trueframe_capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setFile(capturedFile);
+        setPreviewUrl(URL.createObjectURL(blob));
+        stopCamera();
+      }
+    }, 'image/jpeg', 0.95);
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  useEffect(() => {
+    return () => { stopCamera(); };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -51,6 +108,14 @@ export default function Upload() {
       const formData = new FormData();
       formData.append('caption', caption);
       formData.append('file', file);
+      formData.append('uploadSource', uploadMode);
+      if (uploadMode === 'CAMERA') {
+        formData.append('deviceMetadata', JSON.stringify({
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString(),
+          source: 'TrueFrame Camera'
+        }));
+      }
 
       setState('verifying');
 
@@ -90,6 +155,7 @@ export default function Upload() {
     setState('idle');
     setResult(null);
     setPreviewUrl('');
+    stopCamera();
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -115,6 +181,63 @@ export default function Upload() {
           </p>
         </div>
 
+        {/* Upload Mode Selector */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => { setUploadMode('GALLERY'); stopCamera(); }}
+            className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+              uploadMode === 'GALLERY' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" />
+            Gallery Upload
+          </button>
+          <button
+            onClick={() => { setUploadMode('CAMERA'); startCamera(); }}
+            className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+              uploadMode === 'CAMERA' ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Camera className="w-4 h-4" />
+            Verified Capture
+          </button>
+        </div>
+
+        {uploadMode === 'CAMERA' && !file && (
+          <div className="mb-6 bg-muted/30 rounded-2xl p-3 flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              <span className="font-bold text-green-500">Verified Capture mode</span> — Photos taken inside TrueFrame are signed with device metadata and receive the "Captured on TrueFrame" badge.
+            </p>
+          </div>
+        )}
+
+        {/* Camera View */}
+        {uploadMode === 'CAMERA' && cameraStream && !file && (
+          <div className="mb-6 relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full aspect-[4/5] rounded-[2.5rem] object-cover bg-black"
+            />
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="absolute bottom-6 inset-x-0 flex justify-center">
+              <button
+                onClick={capturePhoto}
+                className="w-16 h-16 bg-white rounded-full border-4 border-green-500 shadow-xl hover:scale-110 transition-transform flex items-center justify-center"
+              >
+                <Camera className="w-7 h-7 text-green-600" />
+              </button>
+            </div>
+            <div className="absolute top-4 left-4 bg-green-500/90 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+              LIVE
+            </div>
+          </div>
+        )}
+
         <div className="relative">
           <AnimatePresence mode="wait">
             {state === 'idle' ? (
@@ -125,8 +248,10 @@ export default function Upload() {
                 exit={{ opacity: 0, scale: 1.05 }}
               >
                 <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="group relative aspect-square w-full rounded-[2.5rem] border-2 border-dashed border-border flex flex-col items-center justify-center gap-6 cursor-pointer hover:border-primary/50 transition-all bg-card/50 hover:bg-primary/5 shadow-inner"
+                  onClick={() => uploadMode === 'GALLERY' ? fileInputRef.current?.click() : undefined}
+                  className={`group relative aspect-square w-full rounded-[2.5rem] border-2 border-dashed border-border flex flex-col items-center justify-center gap-6 cursor-pointer hover:border-primary/50 transition-all bg-card/50 hover:bg-primary/5 shadow-inner ${
+                    uploadMode === 'CAMERA' && cameraStream && !file ? 'hidden' : ''
+                  }`}
                 >
                   <input
                     type="file"
@@ -244,6 +369,11 @@ export default function Upload() {
                         <CheckCircle2 className="w-16 h-16 text-green-500" />
                       </div>
                       <h2 className="text-3xl font-black mb-2 text-green-600">Verification Passed</h2>
+                      {result?.authenticityLabel && (
+                        <div className="mb-4">
+                          <AuthenticityLabel label={result.authenticityLabel} />
+                        </div>
+                      )}
                       <p className="text-muted-foreground mb-8 text-center max-w-sm">
                         This content is visually authentic and factually credible. It has been permanently recorded.
                       </p>
@@ -262,7 +392,7 @@ export default function Upload() {
                         <ShieldAlert className="w-16 h-16 text-destructive" />
                       </div>
                       <h2 className="text-3xl font-black mb-2 text-destructive">Upload Blocked</h2>
-                      <div className="bg-destructive/5 border border-destructive/20 rounded-2xl p-6 mb-8 w-full">
+                      <div className="bg-destructive/5 border border-destructive/20 rounded-2xl p-6 mb-6 w-full">
                         <p className="text-sm font-bold text-destructive uppercase mb-2">
                           {result?.fakeNews ? "CONTEXTUAL INCONSISTENCY" : "AUTHENTICITY FAILURE"}
                         </p>
@@ -278,6 +408,44 @@ export default function Upload() {
                           </div>
                         )}
                       </div>
+
+                      {/* Score Breakdown Grid */}
+                      {result?.scoreBreakdown && (
+                        <div className="bg-card border border-border rounded-2xl p-6 mb-8 w-full">
+                          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-4">Detection Breakdown</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            {[
+                              { label: "Neural Network", key: "model_score", icon: Brain },
+                              { label: "Artifact Analysis", key: "artifact_score", icon: Fingerprint },
+                              { label: "Temporal Check", key: "temporal_score", icon: Clock },
+                              { label: "Metadata Scan", key: "metadata_score", icon: FileSearch },
+                            ].map((item) => {
+                              const score = result.scoreBreakdown[item.key] ?? 0;
+                              const color = score < 0.3 ? "bg-green-500" : score < 0.6 ? "bg-amber-500" : "bg-red-500";
+                              const textColor = score < 0.3 ? "text-green-600" : score < 0.6 ? "text-amber-600" : "text-red-600";
+                              const Icon = item.icon;
+                              return (
+                                <div key={item.key} className="space-y-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <Icon className={`w-3.5 h-3.5 ${textColor}`} />
+                                    <span className="text-[10px] font-bold text-muted-foreground uppercase">{item.label}</span>
+                                  </div>
+                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                    <motion.div
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${Math.round(score * 100)}%` }}
+                                      transition={{ duration: 0.8, delay: 0.2 }}
+                                      className={`h-full rounded-full ${color}`}
+                                    />
+                                  </div>
+                                  <p className={`text-xs font-bold ${textColor}`}>{(score * 100).toFixed(1)}%</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex gap-4 w-full">
                         <button
                           onClick={resetUpload}

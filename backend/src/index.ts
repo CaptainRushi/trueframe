@@ -9,6 +9,10 @@ import { profileRoutes } from './routes/profile.js';
 import { socialRoutes } from './routes/social.js';
 import { accountRoutes } from './routes/account.js';
 import { exploreRoutes } from './routes/explore.js';
+import { transparencyRoutes } from './routes/transparency.js';
+import { communityRoutes } from './routes/community.js';
+import { notificationRoutes } from './routes/notifications.js';
+import { creatorRoutes } from './routes/creator.js';
 
 dotenv.config();
 
@@ -18,8 +22,14 @@ const server = fastify({
 });
 
 // Register Plugins
+const origins = process.env.ALLOWED_ORIGIN
+  ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim().replace(/\/$/, ''))
+  : ['*'];
+
 server.register(cors, {
-  origin: process.env.ALLOWED_ORIGIN || '*',
+  origin: origins.length === 1 && origins[0] === '*' ? '*' : origins,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 });
 
 server.register(multipart, {
@@ -37,6 +47,10 @@ server.register(profileRoutes, { prefix: '/api/profile' });
 server.register(socialRoutes, { prefix: '/api/social' });
 server.register(exploreRoutes, { prefix: '/api' });
 server.register(accountRoutes, { prefix: '/api/account' });
+server.register(transparencyRoutes, { prefix: '/api/transparency' });
+server.register(communityRoutes, { prefix: '/api/community' });
+server.register(notificationRoutes, { prefix: '/api/notifications' });
+server.register(creatorRoutes, { prefix: '/api/creator' });
 
 // Health Check & Root
 server.get('/', async () => {
@@ -55,8 +69,9 @@ server.get('/health', async (request, reply) => {
 const start = async () => {
   try {
     const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
-    await server.listen({ port, host: '0.0.0.0' });
-    console.log(`Server running at http://localhost:${port}`);
+    const address = await server.listen({ port, host: '::' });
+    console.log(`\x1b[32m[SUCCESS]\x1b[0m Backend is live at: ${address}`);
+    console.log(`\x1b[36m[INFO]\x1b[0m Local access: http://localhost:${port}`);
   } catch (err) {
     server.log.error(err);
     process.exit(1);

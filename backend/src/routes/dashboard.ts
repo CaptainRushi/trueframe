@@ -7,6 +7,7 @@ interface DashboardStats {
     rejectedUploads: number;
     realPercentage: number;
     fakePercentage: number;
+    trustScore: number;
     fakeDetails: {
         total: number;
         approved: number;
@@ -67,12 +68,20 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
 
             const status = calculateUserStatus(fakePercentage, totalUploads);
 
+            // Fetch cached trust score
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('trust_score')
+                .eq('id', userId)
+                .single();
+
             return {
                 totalUploads,
                 verifiedUploads,
                 rejectedUploads,
                 realPercentage,
                 fakePercentage,
+                trustScore: profile?.trust_score ?? 50,
                 fakeDetails: {
                     total: totalUploads,
                     approved: verifiedUploads,
@@ -85,6 +94,44 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         } catch (error) {
             fastify.log.error(error);
             return reply.code(500).send({ error: 'Failed to fetch stats' });
+        }
+    });
+
+    fastify.get('/trend', async (request, reply) => {
+        let { userId } = request.query as { userId?: string };
+
+        if (!userId) {
+            const authHeader = request.headers.authorization;
+            if (authHeader) {
+                const token = authHeader.replace('Bearer ', '');
+                const { data: { user } } = await supabase.auth.getUser(token);
+                userId = user?.id;
+            }
+        }
+
+        if (!userId) {
+            return reply.code(400).send({ error: 'Missing userId parameter or invalid token' });
+        }
+
+        try {
+            const { data: history, error } = await supabase
+                .from('trust_score_history')
+                .select('trust_score, recorded_at')
+                .eq('user_id', userId)
+                .order('recorded_at', { ascending: true })
+                .limit(90);
+
+            if (error) throw error;
+
+            const trend = (history || []).map((h: any) => ({
+                date: new Date(h.recorded_at).toISOString().split('T')[0],
+                trustScore: h.trust_score
+            }));
+
+            return { trend };
+        } catch (error) {
+            fastify.log.error(error);
+            return reply.code(500).send({ error: 'Failed to fetch trend' });
         }
     });
 

@@ -16,8 +16,20 @@ import {
     XCircle,
     AlertTriangle,
     Info,
-    ShieldX
+    ShieldX,
+    Award,
+    Fingerprint,
+    Star,
+    ArrowRight
 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { TrustShield } from "@/components/ui/TrustShield";
+
+interface TrendPoint {
+    date: string;
+    trustScore: number;
+}
 
 interface DashboardStats {
     totalUploads: number;
@@ -25,6 +37,7 @@ interface DashboardStats {
     rejectedUploads: number;
     realPercentage: number;
     fakePercentage: number;
+    trustScore: number;
     status: "TRUSTED" | "AT_RISK" | "RESTRICTED" | "NEW_USER";
 }
 
@@ -42,6 +55,7 @@ import { BACKEND_URL } from "@/lib/api";
 export default function Dashboard() {
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [history, setHistory] = useState<UploadHistoryItem[]>([]);
+    const [trend, setTrend] = useState<TrendPoint[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { toast } = useToast();
@@ -87,6 +101,22 @@ export default function Dashboard() {
 
             const historyData = await historyResponse.json();
             setHistory(historyData.history || []);
+
+            // Fetch trend
+            try {
+                const trendResponse = await fetch(
+                    `${BACKEND_URL}/api/dashboard/trend`,
+                    {
+                        headers: { 'Authorization': `Bearer ${session.access_token}` }
+                    }
+                );
+                if (trendResponse.ok) {
+                    const trendData = await trendResponse.json();
+                    setTrend(trendData.trend || []);
+                }
+            } catch (trendErr) {
+                console.warn('Trend data fetch failed:', trendErr);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
             console.error("Dashboard fetch error:", err);
@@ -185,14 +215,25 @@ export default function Dashboard() {
 
                 {/* Main Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                    <StatCard
-                        title="Integrity Score"
-                        value={`${stats?.realPercentage || 0}%`}
-                        subtitle="Real content ratio"
-                        icon={ShieldCheck}
-                        trend={stats?.realPercentage && stats.realPercentage > 90 ? "UP" : "STABLE"}
-                        color="primary"
-                    />
+                    {/* Trust Score Card — replaces old Integrity Score */}
+                    <motion.div
+                        whileHover={{ y: -4 }}
+                        className="bg-card rounded-[2rem] border border-border p-6 shadow-sm"
+                    >
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-primary/5">
+                                <TrustShield trustScore={stats?.trustScore ?? 50} status={stats?.status || 'NEW_USER'} size="lg" showScore={false} showTooltip={false} />
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <p className="text-xs font-bold uppercase text-muted-foreground tracking-widest">Trust Score</p>
+                            <div className="flex items-end gap-2">
+                                <p className="text-3xl font-black">{stats?.trustScore ?? 50}</p>
+                                <span className="text-xs font-bold text-muted-foreground mb-1">/100</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground italic">Weighted trust composite</p>
+                        </div>
+                    </motion.div>
                     <StatCard
                         title="Verified Real"
                         value={stats?.verifiedUploads.toString() || "0"}
@@ -209,6 +250,131 @@ export default function Dashboard() {
                         color="red"
                     />
                 </div>
+
+                {/* Trust Level & Creator Program */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                    {/* Trust Level */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-card rounded-[2rem] border border-border p-6 shadow-sm"
+                    >
+                        <div className="flex items-center gap-3 mb-4">
+                            <Star className="w-5 h-5 text-primary" />
+                            <h3 className="text-sm font-black uppercase tracking-widest">Trust Level</h3>
+                        </div>
+                        <div className="space-y-3">
+                            {[
+                                { level: "Trusted Creator", range: "90-100", color: "bg-green-500", active: (stats?.trustScore ?? 0) >= 90 },
+                                { level: "Reliable User", range: "70-89", color: "bg-blue-500", active: (stats?.trustScore ?? 0) >= 70 && (stats?.trustScore ?? 0) < 90 },
+                                { level: "Normal User", range: "50-69", color: "bg-gray-400", active: (stats?.trustScore ?? 0) >= 50 && (stats?.trustScore ?? 0) < 70 },
+                                { level: "Suspicious", range: "30-49", color: "bg-yellow-500", active: (stats?.trustScore ?? 0) >= 30 && (stats?.trustScore ?? 0) < 50 },
+                                { level: "High Risk", range: "0-29", color: "bg-red-500", active: (stats?.trustScore ?? 0) < 30 },
+                            ].map((item) => (
+                                <div key={item.level} className={`flex items-center gap-3 p-2 rounded-xl transition-colors ${item.active ? 'bg-primary/5 border border-primary/20' : ''}`}>
+                                    <div className={`w-3 h-3 rounded-full ${item.color} ${item.active ? 'ring-2 ring-offset-2 ring-offset-background ring-current' : 'opacity-40'}`} />
+                                    <span className={`text-sm font-medium flex-1 ${item.active ? 'font-bold text-foreground' : 'text-muted-foreground'}`}>{item.level}</span>
+                                    <span className="text-xs text-muted-foreground">{item.range}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </motion.div>
+
+                    {/* Creator Program CTA */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-[2rem] border border-primary/20 p-6 shadow-sm flex flex-col justify-between"
+                    >
+                        <div>
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+                                    <Award className="w-6 h-6 text-primary" />
+                                </div>
+                            </div>
+                            <h3 className="text-lg font-black mb-2">Verified Creator Program</h3>
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Earn the Verified Authentic Creator badge. Get higher visibility, priority verification, and community verifier status.
+                            </p>
+                            <div className="space-y-2 mb-4">
+                                <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle2 className={`w-4 h-4 ${(stats?.trustScore ?? 0) >= 85 ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                    <span>Trust Score 85+ ({stats?.trustScore ?? 0}/85)</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle2 className={`w-4 h-4 ${(stats?.totalUploads ?? 0) >= 10 ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                    <span>10+ uploads ({stats?.totalUploads ?? 0}/10)</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle2 className={`w-4 h-4 ${(stats?.realPercentage ?? 0) >= 90 ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                    <span>90%+ authenticity rate ({stats?.realPercentage ?? 0}%/90%)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <Link
+                            to="/creator"
+                            className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+                        >
+                            View Creator Program
+                            <ArrowRight className="w-4 h-4" />
+                        </Link>
+                    </motion.div>
+                </div>
+
+                {/* Trust Score Trend Chart */}
+                {trend.length > 1 && (
+                    <section className="bg-card rounded-[2rem] border border-border p-8 mb-10">
+                        <h3 className="text-xl font-black mb-6 flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-primary" />
+                            Trust Score Over Time
+                        </h3>
+                        <div className="h-64 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={trend} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                                    <defs>
+                                        <linearGradient id="trustGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                                    <XAxis
+                                        dataKey="date"
+                                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                        tickLine={false}
+                                        axisLine={false}
+                                    />
+                                    <YAxis
+                                        domain={[0, 100]}
+                                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                        tickLine={false}
+                                        axisLine={false}
+                                    />
+                                    <RechartsTooltip
+                                        contentStyle={{
+                                            background: 'hsl(var(--card))',
+                                            border: '1px solid hsl(var(--border))',
+                                            borderRadius: '12px',
+                                            fontSize: '12px',
+                                            fontWeight: 600,
+                                        }}
+                                        labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="trustScore"
+                                        stroke="hsl(142, 76%, 36%)"
+                                        strokeWidth={2.5}
+                                        fill="url(#trustGradient)"
+                                        dot={{ r: 3, fill: 'hsl(142, 76%, 36%)', strokeWidth: 0 }}
+                                        activeDot={{ r: 5, fill: 'hsl(142, 76%, 36%)', strokeWidth: 2, stroke: '#fff' }}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </section>
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                     {/* Distribution Chart / Visualization Area */}

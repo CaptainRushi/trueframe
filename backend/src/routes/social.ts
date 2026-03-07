@@ -48,6 +48,23 @@ export async function socialRoutes(fastify: FastifyInstance) {
                 // Increment like_count
                 await supabase.rpc('increment_like_count', { post_id: postId });
 
+                // Send notification to post owner
+                const { data: likedPost } = await supabase
+                    .from('posts')
+                    .select('user_id')
+                    .eq('id', postId)
+                    .single();
+                if (likedPost && likedPost.user_id !== user.id) {
+                    await supabase.from('notifications').insert({
+                        user_id: likedPost.user_id,
+                        type: 'LIKE',
+                        title: 'New Like',
+                        message: 'liked your post',
+                        related_post_id: postId,
+                        related_user_id: user.id
+                    });
+                }
+
                 return { liked: true, message: 'Post liked' };
             }
         } catch (error: any) {
@@ -156,6 +173,23 @@ export async function socialRoutes(fastify: FastifyInstance) {
 
             // Increment comment_count
             await supabase.rpc('increment_comment_count', { post_id: postId });
+
+            // Send notification to post owner
+            const { data: commentedPost } = await supabase
+                .from('posts')
+                .select('user_id')
+                .eq('id', postId)
+                .single();
+            if (commentedPost && commentedPost.user_id !== user.id) {
+                await supabase.from('notifications').insert({
+                    user_id: commentedPost.user_id,
+                    type: 'COMMENT',
+                    title: 'New Comment',
+                    message: content.trim().substring(0, 100),
+                    related_post_id: postId,
+                    related_user_id: user.id
+                });
+            }
 
             return { success: true, comment, classification: type, visibility };
         } catch (error: any) {

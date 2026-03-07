@@ -64,6 +64,20 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         caption = (data.fields as any).caption.value;
       }
 
+      // Upload Source (Camera vs Gallery)
+      let uploadSource = 'GALLERY';
+      if (data.fields && (data.fields as any).uploadSource) {
+        uploadSource = (data.fields as any).uploadSource.value === 'CAMERA' ? 'CAMERA' : 'GALLERY';
+      }
+
+      // Device metadata for camera captures
+      let deviceMetadata: any = null;
+      if (data.fields && (data.fields as any).deviceMetadata) {
+        try {
+          deviceMetadata = JSON.parse((data.fields as any).deviceMetadata.value);
+        } catch (e) { /* ignore parse errors */ }
+      }
+
       // Save Temp
       const fs = await import('fs/promises');
       await fs.mkdir(tempDir, { recursive: true });
@@ -89,9 +103,28 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // --- 1c. HASH DUPLICATE CHECK ---
+      const { data: previousRejection } = await supabase
+        .from('verification_logs')
+        .select('id, final_verdict')
+        .eq('media_hash', mediaHash)
+        .in('final_verdict', ['FAKE', 'REJECTED'])
+        .limit(1)
+        .maybeSingle();
+
+      if (previousRejection) {
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Previously rejected content (hash match)');
+        await updateProfileTrustScore(userId);
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(400).send({
+          verified: false,
+          reason: 'This content was previously rejected. Uploading known-fake content impacts your trust score.'
+        });
+      }
+
       // --- 2. DEEPFAKE DETECTION ---
       const aiEnginePath = join(process.cwd(), '..', 'ai_service', 'main.py');
-      let mediaResult;
+      let mediaResult: any;
       try {
         mediaResult = await runAIVerification(aiEnginePath, tempPath);
       } catch (e: any) {
@@ -105,6 +138,15 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       finalScore = mediaResult.final_score ?? 0;
       const modelName = mediaResult.model ?? 'efficientnet-b0';
       const modelVersion = '1.0';
+
+      // Extract component scores for breakdown
+      const scoreBreakdown = {
+        model_score: mediaResult.model_score ?? 0,
+        artifact_score: mediaResult.artifact_score ?? 0,
+        temporal_score: mediaResult.temporal_score ?? 0,
+        metadata_score: mediaResult.metadata_score ?? 0,
+        compression_score: mediaResult.compression_score ?? 0
+      };
 
       if (mediaResult.verdict === 'APPROVED') {
         deepfakeVerdict = 'APPROVED';
@@ -141,6 +183,16 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       // --- 4. COMPUTE FINAL VERDICT ---
       finalVerdict = (deepfakeVerdict === 'APPROVED' && fakeNewsVerdict === 'APPROVED') ? 'REAL' : 'FAKE';
 
+      // --- 4b. DETERMINE AUTHENTICITY LABEL ---
+      let authenticityLabel = 'VERIFIED_REAL';
+      if (finalVerdict === 'FAKE') {
+        authenticityLabel = fakeNewsVerdict === 'REJECTED' ? 'REJECTED_MISLEADING' : 'REJECTED_SYNTHETIC';
+      } else if (uploadSource === 'CAMERA' && finalScore < 0.15) {
+        authenticityLabel = 'CAMERA_ORIGINAL';
+      } else if (finalScore < 0.10) {
+        authenticityLabel = 'CAMERA_ORIGINAL';
+      }
+
       // --- 5. LOG ONCE ---
       const { data: logEntry } = await logVerification(
         userId,
@@ -153,7 +205,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         finalReason,
         data.mimetype.startsWith('video') ? 'video' : 'image',
         modelName,
-        modelVersion
+        modelVersion,
+        authenticityLabel,
+        scoreBreakdown,
+        uploadSource,
+        deviceMetadata
       );
 
       // --- 6. UPDATE PROFILE CACHE ---
@@ -165,24 +221,62 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(storagePath);
         await supabase.storage.from('posts').upload(storagePath, fileBuffer, { contentType: data.mimetype });
 
-        await supabase.from('posts').insert({
+        const { data: newPost } = await supabase.from('posts').insert({
           user_id: userId,
           media_url: publicUrl,
           media_type: data.mimetype.startsWith('video') ? 'video' : 'image',
           caption: caption,
           verification_log_id: logEntry?.id,
-          media_hash_check: mediaHash
+          media_hash_check: mediaHash,
+          authenticity_label: authenticityLabel,
+          upload_source: uploadSource
+        }).select('id').single();
+
+        // Generate content proof (blockchain-like hash chain)
+        if (newPost) {
+          await generateContentProof(newPost.id, mediaHash, userId);
+        }
+
+        // Send notification to user
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_PASSED',
+          title: 'Content Verified',
+          message: `Your ${uploadSource === 'CAMERA' ? 'camera capture' : 'upload'} passed verification with ${authenticityLabel.replace(/_/g, ' ').toLowerCase()} status.`,
+          related_post_id: newPost?.id
         });
 
         if (existsSync(tempPath)) unlinkSync(tempPath);
-        return { verified: true, fakeNews: false, score: finalScore, mediaUrl: publicUrl };
+        return {
+          verified: true,
+          fakeNews: false,
+          score: finalScore,
+          mediaUrl: publicUrl,
+          authenticityLabel,
+          scoreBreakdown,
+          logId: logEntry?.id
+        };
       } else {
+        // Notify user of failed verification
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_FAILED',
+          title: 'Upload Blocked',
+          message: finalReason || 'Your content did not pass verification.'
+        });
+
+        // Track deepfake pattern for alerts
+        await trackDeepfakeAlert(mediaHash, finalReason);
+
         if (existsSync(tempPath)) unlinkSync(tempPath);
         return reply.code(400).send({
           verified: false,
           fakeNews: fakeNewsVerdict === 'REJECTED',
           reason: finalReason,
-          score: finalScore
+          score: finalScore,
+          authenticityLabel,
+          scoreBreakdown,
+          logId: logEntry?.id
         });
       }
 
@@ -240,6 +334,14 @@ async function runContextVerification(scriptPath: string, caption: string, fileP
 
 async function updateProfileTrustScore(userId: string) {
   try {
+    // Fetch profile for account age
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('created_at')
+      .eq('id', userId)
+      .single();
+
+    // Fetch verification counts
     const [{ count: total }, { count: real }] = await Promise.all([
       supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId),
       supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId).in('final_verdict', ['REAL', 'APPROVED'])
@@ -251,20 +353,61 @@ async function updateProfileTrustScore(userId: string) {
     const realPercentage = totalUploads > 0 ? Math.round((verifiedUploads / totalUploads) * 100) : 100;
     const fakePercentage = totalUploads > 0 ? Math.round((rejectedUploads / totalUploads) * 100) : 0;
 
+    // COMPONENT 1: Verification Rate (0-40 points)
+    const verificationRate = totalUploads > 0 ? (verifiedUploads / totalUploads) : 0.5;
+    const verificationScore = Math.round(verificationRate * 40);
+
+    // COMPONENT 2: Account Age (0-20 points) — maxes at 90 days
+    const accountAgeDays = profile?.created_at
+      ? (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 86400)
+      : 0;
+    const ageScore = Math.min(20, Math.round((accountAgeDays / 90) * 20));
+
+    // COMPONENT 3: Activity Volume (0-20 points) — maxes at 50 uploads
+    const volumeScore = Math.min(20, Math.round((totalUploads / 50) * 20));
+
+    // COMPONENT 4: Community Reputation (0-20 points)
+    const { count: followers } = await supabase
+      .from('follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('following_id', userId);
+    const followerScore = Math.min(10, Math.round(((followers || 0) / 100) * 10));
+
+    const { data: userPosts } = await supabase
+      .from('posts')
+      .select('like_count')
+      .eq('user_id', userId);
+    const totalLikeCount = userPosts?.reduce((sum: number, p: any) => sum + (p.like_count || 0), 0) || 0;
+    const engagementScore = Math.min(10, Math.round((totalLikeCount / 500) * 10));
+    const communityScore = followerScore + engagementScore;
+
+    // FINAL TRUST SCORE (0-100)
+    const trustScore = Math.min(100, verificationScore + ageScore + volumeScore + communityScore);
+
+    // Derive status from score
     let status = 'TRUSTED';
     if (totalUploads === 0) status = 'NEW_USER';
-    else if (fakePercentage > 30) status = 'RESTRICTED';
-    else if (fakePercentage > 10) status = 'AT_RISK';
+    else if (trustScore < 25) status = 'RESTRICTED';
+    else if (trustScore < 50) status = 'AT_RISK';
 
     await supabase.from('profiles').update({
       trust_status: status,
+      trust_score: trustScore,
+      trust_score_updated_at: new Date().toISOString(),
       real_percentage: realPercentage,
       fake_percentage: fakePercentage,
       total_attempts: totalUploads,
       real_count: verifiedUploads,
       fake_count: rejectedUploads
     }).eq('id', userId);
-    console.log(`[TRUST-CACHE] User ${userId}: ${status} (${realPercentage}% Real, ${fakePercentage}% Fake)`);
+
+    // Insert trust score history snapshot
+    await supabase.from('trust_score_history').insert({
+      user_id: userId,
+      trust_score: trustScore
+    });
+
+    console.log(`[TRUST-CACHE] User ${userId}: ${status} (Score: ${trustScore}, ${realPercentage}% Real)`);
   } catch (e) { console.warn(`[TRUST-CACHE] Failed for ${userId}`, e); }
 }
 
@@ -279,9 +422,12 @@ async function logVerification(
   reason: string | null,
   mediaType: string = 'image',
   modelName: string = 'efficientnet-b0',
-  modelVersion: string = '1.0'
+  modelVersion: string = '1.0',
+  authenticityLabel: string = 'UNKNOWN',
+  scoreBreakdown: Record<string, number> | null = null,
+  uploadSource: string = 'GALLERY',
+  deviceMetadata: any = null
 ) {
-  // Map finalScore to the legacy 'score' column for compatibility
   const insertData: any = {
     user_id: userId,
     media_hash: mediaHash,
@@ -289,16 +435,89 @@ async function logVerification(
     deepfake_verdict: deepfakeVerdict,
     fake_news_verdict: fakeNewsVerdict,
     final_verdict: finalVerdict,
-    verdict: finalVerdict, // compatibility
-    score: finalScore,     // compatibility
+    verdict: finalVerdict,
+    score: finalScore,
     reason,
     model_name: modelName,
     model_version: modelVersion,
     model_score: modelScore,
-    final_score: finalScore
+    final_score: finalScore,
+    authenticity_label: authenticityLabel,
+    score_breakdown: scoreBreakdown,
+    upload_source: uploadSource,
+    device_metadata: deviceMetadata
   };
 
   return await supabase.from('verification_logs').insert(insertData).select().single();
+}
+
+async function generateContentProof(postId: string, mediaHash: string, userId: string) {
+  try {
+    // Get last proof in chain
+    const { data: lastProof } = await supabase
+      .from('content_proofs')
+      .select('proof_hash, proof_chain_index')
+      .order('proof_chain_index', { ascending: false })
+      .limit(1)
+      .single();
+
+    const previousHash = lastProof?.proof_hash || '0000000000000000';
+    const chainIndex = (lastProof?.proof_chain_index || 0) + 1;
+
+    // Create metadata hash
+    const metadataString = `${postId}:${userId}:${Date.now()}`;
+    const metadataHash = createHash('sha256').update(metadataString).digest('hex');
+
+    // Create proof hash (chain: previous + media + metadata)
+    const proofString = `${previousHash}:${mediaHash}:${metadataHash}`;
+    const proofHash = createHash('sha256').update(proofString).digest('hex');
+
+    await supabase.from('content_proofs').insert({
+      post_id: postId,
+      media_hash: mediaHash,
+      metadata_hash: metadataHash,
+      proof_hash: proofHash,
+      previous_proof_hash: previousHash,
+      proof_chain_index: chainIndex
+    });
+
+    // Update post with proof hash
+    await supabase.from('posts')
+      .update({ content_hash_proof: proofHash })
+      .eq('id', postId);
+  } catch (e) {
+    console.warn('[PROOF] Content proof generation failed:', e);
+  }
+}
+
+async function trackDeepfakeAlert(mediaHash: string, reason: string) {
+  try {
+    // Check if this hash was already flagged
+    const { data: existing } = await supabase
+      .from('deepfake_alerts')
+      .select('id, detection_count')
+      .eq('media_hash', mediaHash)
+      .single();
+
+    if (existing) {
+      await supabase.from('deepfake_alerts')
+        .update({
+          detection_count: existing.detection_count + 1,
+          severity: existing.detection_count >= 5 ? 'CRITICAL' : existing.detection_count >= 3 ? 'HIGH' : 'MEDIUM',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+    } else {
+      await supabase.from('deepfake_alerts').insert({
+        title: 'Deepfake Content Detected',
+        description: reason,
+        media_hash: mediaHash,
+        severity: 'LOW'
+      });
+    }
+  } catch (e) {
+    console.warn('[ALERT] Deepfake alert tracking failed:', e);
+  }
 }
 
 async function getPythonCommand(): Promise<string> {
