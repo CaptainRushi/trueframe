@@ -1,73 +1,67 @@
-# Welcome to your Lovable project
+# TrueFrame - Authenticity-First Social Media Platform
 
-## Project info
+TrueFrame is a next-generation social media platform built around authenticity. It uses AI deepfake detection to ensure that all media uploaded to the platform is verified as real, combating misinformation and AI-generated fakes.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 🚀 Key Features
 
-## How can I edit this code?
+*   **AI Fake Detection Engine:** Automatically scans every image and video upload using advanced models (e.g., EfficientNet, CLIP) to detect deepfakes, manipulations, and AI-generated content.
+*   **Trust Scores & Authenticity Labels:** Users build a global "Trust Score" based on their upload history. Content is tagged with clear Authenticity Labels (e.g., `VERIFIED_REAL`, `AI_GENERATED`).
+*   **Community Fact-Checking:** A decentralized verification system where trusted users can flag and review potentially misleading or out-of-context posts.
+*   **Deepfake Alerts:** Global alerts notify users about trending deepfakes or misinformation campaigns.
+*   **Consolidated Schema:** Powered by a unified Supabase PostgreSQL schema with advanced social features like follows, comments, shares, and content proofs.
 
-There are several ways of editing your application.
+## 🛠️ Technologies Used
 
-**Use Lovable**
+### Frontend
+*   React + Vite
+*   TypeScript
+*   Tailwind CSS
+*   shadcn-ui
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Backend & AI
+*   Node.js & Express (API Layer)
+*   Python (FastAPI AI microservice)
+*   Supabase (PostgreSQL Database & Authentication)
 
-Changes made via Lovable will be committed automatically to this repo.
+## 📦 Getting Started
 
-**Use your preferred IDE**
+### Prerequisites
+*   Node.js (v18+)
+*   Python (3.9+)
+*   Supabase CLI (optional, for local database)
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Installation
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+1.  **Clone the Repository**
+    ```sh
+    git clone https://github.com/your-username/trueframe.git
+    cd trueframe/verified-stream
+    ```
 
-Follow these steps:
+2.  **Install Frontend & API Dependencies**
+    ```sh
+    npm install
+    cd backend && npm install
+    ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+3.  **Setup the AI Service**
+    ```sh
+    cd ai_service
+    pip install -r requirements.txt
+    ```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+4.  **Database Setup**
+    *   Create a Supabase project.
+    *   Run the unified schema located at `backend/db/schema.sql` in your Supabase SQL editor.
+    *   Update `.env` files with your Supabase keys.
 
-# Step 3: Install the necessary dependencies.
-npm i
+5.  **Run Development Servers**
+    *   Start Frontend: `npm run dev` (in the root directory)
+    *   Start Backend: `npm run dev` (in the `backend` directory)
+    *   Start AI Service: `python main.py` (in the `ai_service` directory)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+## 🤝 Contributing
+Contributions, issues, and feature requests are welcome!
 
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## 📄 License
+This project is licensed under the MIT License.
