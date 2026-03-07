@@ -312,7 +312,7 @@ BEGIN
     END IF;
 
     IF pct < 70 THEN
-        new_status := 'RESTRICTED';
+        new_status := 'UNDER_REVIEW';
     ELSIF pct < 90 THEN
         new_status := 'AT_RISK';
     ELSE

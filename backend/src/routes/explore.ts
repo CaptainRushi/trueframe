@@ -6,7 +6,7 @@ export async function exploreRoutes(fastify: FastifyInstance) {
     /**
      * GET /api/explore
      * Returns ranked verified posts for the Explore feed.
-     * Rules: PUBLIC, APPROVED, TRUSTED/AT_RISK users only (no RESTRICTED).
+     * Rules: PUBLIC, APPROVED, TRUSTED/AT_RISK users only (no UNDER_REVIEW).
      */
     fastify.get('/explore', async (request, reply) => {
         try {
@@ -45,7 +45,7 @@ export async function exploreRoutes(fastify: FastifyInstance) {
             // Client-side filtering just in case Supabase select filter behaved oddly (double safety)
             const safePosts = posts.filter((p: any) => {
                 const profile = p.profiles;
-                return profile && profile.trust_status !== 'RESTRICTED';
+                return profile && profile.trust_status !== 'UNDER_REVIEW';
             });
 
             return safePosts;
@@ -66,7 +66,7 @@ export async function exploreRoutes(fastify: FastifyInstance) {
 
         try {
             // Search username OR display_name
-            // And ensure NOT restricted
+            // And ensure NOT under review
             const { data: users, error } = await supabase
                 .from('profiles')
                 .select('id, username, display_name, avatar_url, trust_status, real_percentage')

@@ -472,7 +472,7 @@ export default function Upload() {
             <AlertTriangle className="w-5 h-5 text-muted-foreground" />
             <p className="text-xs font-bold uppercase text-muted-foreground">Immutable Trust</p>
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              This verification is tied to your account's Trust Status. Repeated failed attempts will lead to restricted access.
+              This verification is tied to your account's Trust Status. Repeated failed attempts will lead to your profile being placed under review.
             </p>
           </div>
         </div>

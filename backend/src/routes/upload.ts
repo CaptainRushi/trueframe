@@ -387,7 +387,7 @@ async function updateProfileTrustScore(userId: string) {
     // Derive status from score
     let status = 'TRUSTED';
     if (totalUploads === 0) status = 'NEW_USER';
-    else if (trustScore < 25) status = 'RESTRICTED';
+    else if (trustScore < 25) status = 'UNDER_REVIEW';
     else if (trustScore < 50) status = 'AT_RISK';
 
     await supabase.from('profiles').update({

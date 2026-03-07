@@ -14,12 +14,12 @@ interface DashboardStats {
         rejected: number;
         fakeRatio: number;
     };
-    status: 'TRUSTED' | 'AT_RISK' | 'RESTRICTED' | 'NEW_USER';
+    status: 'TRUSTED' | 'AT_RISK' | 'UNDER_REVIEW' | 'NEW_USER';
 }
 
 function calculateUserStatus(fakePercentage: number, totalUploads: number): DashboardStats['status'] {
     if (totalUploads === 0) return 'NEW_USER';
-    if (fakePercentage > 30) return 'RESTRICTED';
+    if (fakePercentage > 30) return 'UNDER_REVIEW';
     if (fakePercentage > 10) return 'AT_RISK';
     return 'TRUSTED';
 }

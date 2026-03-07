@@ -38,7 +38,7 @@ interface DashboardStats {
     realPercentage: number;
     fakePercentage: number;
     trustScore: number;
-    status: "TRUSTED" | "AT_RISK" | "RESTRICTED" | "NEW_USER";
+    status: "TRUSTED" | "AT_RISK" | "UNDER_REVIEW" | "NEW_USER";
 }
 
 interface UploadHistoryItem {
@@ -145,13 +145,13 @@ export default function Dashboard() {
                     label: "At Risk",
                     description: "Higher than average rejection rate. Be careful.",
                 };
-            case "RESTRICTED":
+            case "UNDER_REVIEW":
                 return {
                     icon: ShieldX,
                     color: "text-red-500",
                     bgColor: "bg-red-500/10",
                     borderColor: "border-red-500/30",
-                    label: "Restricted",
+                    label: "Under Review",
                     description: "Too many fake attempts. Exposure limited.",
                 };
             default:

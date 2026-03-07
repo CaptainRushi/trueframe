@@ -70,7 +70,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
                 const fakeVal = fake || 0;
                 const fakeRate = totalVal > 0 ? (fakeVal / totalVal) : 0;
 
-                // Trust Status: Trusted (1.0), At Risk (0.5), Restricted (0.1)
+                // Trust Status: Trusted (1.0), At Risk (0.5), Under Review (0.1)
                 let trustWeight = 1.0;
                 if (fakeRate > 0.3) trustWeight = 0.1;
                 else if (fakeRate > 0.1) trustWeight = 0.5;

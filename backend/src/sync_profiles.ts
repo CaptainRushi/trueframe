@@ -25,7 +25,7 @@ async function syncAllProfilesDetailed() {
 
         let status = 'TRUSTED';
         if (totalUploads === 0) status = 'NEW_USER';
-        else if (fakePercentage > 30) status = 'RESTRICTED';
+        else if (fakePercentage > 30) status = 'UNDER_REVIEW';
         else if (fakePercentage > 10) status = 'AT_RISK';
 
         // Update with all new columns
