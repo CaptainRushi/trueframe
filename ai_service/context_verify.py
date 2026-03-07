@@ -84,7 +84,7 @@ def check_patterns(text):
         reasons.append("Sensationalist language patterns")
         
     # Absolute claims
-    if re.search(r"(?i)everyone", r"(?i)confirmed by all", r"(?i)100% true"):
+    if re.search(r"(?i)(everyone|confirmed by all|100% true)", text):
         score += 0.2
         reasons.append("Suspicious absolute claim markers")
         

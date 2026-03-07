@@ -1,10 +1,14 @@
 import os
+import sys
 import cv2
 import numpy as np
 import onnxruntime as ort
 from PIL import Image
 import torch
 from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+def _log(msg):
+    print(msg, file=sys.stderr)
 
 class EfficientNetONNXDetector:
     def __init__(self, model_path):
@@ -21,11 +25,11 @@ class EfficientNetONNXDetector:
                     model_path, 
                     providers=['CPUExecutionProvider']
                 )
-                print(f"[AI-MODEL] Loaded EfficientNet-B0 from {model_path}")
+                _log(f"[AI-MODEL] Loaded EfficientNet-B0 from {model_path}")
             except Exception as e:
-                print(f"[AI-MODEL] Error loading ONNX model: {e}")
+                _log(f"[AI-MODEL] Error loading ONNX model: {e}")
         else:
-            print(f"[AI-MODEL] WARNING: Model file not found at {model_path}")
+            _log(f"[AI-MODEL] WARNING: Model file not found at {model_path}")
 
     def preprocess(self, face_crop_bgr):
         """
@@ -79,7 +83,7 @@ class EfficientNetONNXDetector:
             return np.clip(score, 0.0, 1.0)
             
         except Exception as e:
-            print(f"[AI-MODEL] Inference error: {e}")
+            _log(f"[AI-MODEL] Inference error: {e}")
             return 0.1 # FALLBACK
 
     def predict_batch(self, face_crops_bgr):
@@ -103,7 +107,7 @@ class EfficientNetONNXDetector:
             return [np.clip(s, 0.0, 1.0) for s in scores]
             
         except Exception as e:
-            print(f"[AI-MODEL] Batch inference error: {e}")
+            _log(f"[AI-MODEL] Batch inference error: {e}")
             return [0.1] * len(face_crops_bgr)
 
 class HuggingFaceDeepfakeDetector:
@@ -113,7 +117,7 @@ class HuggingFaceDeepfakeDetector:
         self.processor = None
         self.fake_idx = 0
         try:
-            print(f"[AI-MODEL] Loading HuggingFace model: {model_name}")
+            _log(f"[AI-MODEL] Loading HuggingFace model: {model_name}")
             self.processor = AutoImageProcessor.from_pretrained(model_name)
             self.model = AutoModelForImageClassification.from_pretrained(model_name)
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -125,9 +129,9 @@ class HuggingFaceDeepfakeDetector:
                 if "fake" in label.lower() or "forged" in label.lower() or "manipulat" in label.lower():
                     self.fake_idx = int(idx)
                     break
-            print(f"[AI-MODEL] HuggingFace loaded on {self.device}. Fake label mapped to index: {self.fake_idx}")
+            _log(f"[AI-MODEL] HuggingFace loaded on {self.device}. Fake label mapped to index: {self.fake_idx}")
         except Exception as e:
-            print(f"[AI-MODEL] Error loading HuggingFace model: {e}")
+            _log(f"[AI-MODEL] Error loading HuggingFace model: {e}")
 
     def preprocess(self, face_crop_bgr):
         # Convert BGR (OpenCV) to RGB (PIL)
@@ -146,7 +150,7 @@ class HuggingFaceDeepfakeDetector:
                 score = probs[0][self.fake_idx].item()
             return np.clip(score, 0.0, 1.0)
         except Exception as e:
-            print(f"[AI-MODEL] HF Inference error: {e}")
+            _log(f"[AI-MODEL] HF Inference error: {e}")
             return 0.1
 
     def predict_batch(self, face_crops_bgr):
@@ -163,5 +167,5 @@ class HuggingFaceDeepfakeDetector:
                 scores = probs[:, self.fake_idx].tolist()
             return [np.clip(s, 0.0, 1.0) for s in scores]
         except Exception as e:
-            print(f"[AI-MODEL] HF Batch inference error: {e}")
+            _log(f"[AI-MODEL] HF Batch inference error: {e}")
             return [0.1] * len(face_crops_bgr)

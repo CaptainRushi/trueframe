@@ -150,6 +150,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 
       if (mediaResult.verdict === 'APPROVED') {
         deepfakeVerdict = 'APPROVED';
+      } else if (mediaResult.verdict === 'UNDER_REVIEW') {
+        deepfakeVerdict = 'UNDER_REVIEW';
+        const sigs = mediaResult.signals || [];
+        const reasons = Array.isArray(sigs) ? sigs : [];
+        finalReason = reasons.join(', ') || 'Content flagged for review';
       } else {
         deepfakeVerdict = 'REJECTED';
         const sigs = mediaResult.signals || [];
@@ -157,8 +162,8 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         finalReason = reasons.join(', ') || 'Synthetic content detected';
       }
 
-      // --- 3. FAKE NEWS DETECTION (If Media Passed) ---
-      if (deepfakeVerdict === 'APPROVED') {
+      // --- 3. FAKE NEWS DETECTION (If Media Passed or Under Review) ---
+      if (deepfakeVerdict === 'APPROVED' || deepfakeVerdict === 'UNDER_REVIEW') {
         const contextEnginePath = join(process.cwd(), '..', 'ai_service', 'context_verify.py');
         let contextResult;
         try {
@@ -181,12 +186,22 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       }
 
       // --- 4. COMPUTE FINAL VERDICT ---
-      finalVerdict = (deepfakeVerdict === 'APPROVED' && fakeNewsVerdict === 'APPROVED') ? 'REAL' : 'FAKE';
+      if (deepfakeVerdict === 'REJECTED' || fakeNewsVerdict === 'REJECTED') {
+        finalVerdict = 'FAKE';
+      } else if (deepfakeVerdict === 'UNDER_REVIEW') {
+        finalVerdict = 'UNDER_REVIEW';
+      } else if (deepfakeVerdict === 'APPROVED' && (fakeNewsVerdict === 'APPROVED' || fakeNewsVerdict === 'SKIPPED')) {
+        finalVerdict = 'REAL';
+      } else {
+        finalVerdict = 'FAKE';
+      }
 
       // --- 4b. DETERMINE AUTHENTICITY LABEL ---
       let authenticityLabel = 'VERIFIED_REAL';
       if (finalVerdict === 'FAKE') {
         authenticityLabel = fakeNewsVerdict === 'REJECTED' ? 'REJECTED_MISLEADING' : 'REJECTED_SYNTHETIC';
+      } else if (finalVerdict === 'UNDER_REVIEW') {
+        authenticityLabel = 'PENDING_REVIEW';
       } else if (uploadSource === 'CAMERA' && finalScore < 0.15) {
         authenticityLabel = 'CAMERA_ORIGINAL';
       } else if (finalScore < 0.10) {
@@ -216,6 +231,49 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       await updateProfileTrustScore(userId);
 
       // --- 7. ACTION ---
+      if (finalVerdict === 'UNDER_REVIEW') {
+        // Upload content but mark as pending review — not visible in public feed
+        const storagePath = `${userId}/${Date.now()}_${data.filename}`;
+        const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(storagePath);
+        await supabase.storage.from('posts').upload(storagePath, fileBuffer, { contentType: data.mimetype });
+
+        const { data: newPost } = await supabase.from('posts').insert({
+          user_id: userId,
+          media_url: publicUrl,
+          media_type: data.mimetype.startsWith('video') ? 'video' : 'image',
+          caption: caption,
+          verification_log_id: logEntry?.id,
+          media_hash_check: mediaHash,
+          authenticity_label: authenticityLabel,
+          upload_source: uploadSource,
+          visibility: 'UNDER_REVIEW',
+          verification_status: 'UNDER_REVIEW'
+        }).select('id').single();
+
+        if (newPost) {
+          await generateContentProof(newPost.id, mediaHash, userId);
+        }
+
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_PASSED',
+          title: 'Content Under Review',
+          message: 'Your upload scored in the borderline range and is pending manual review. It will be visible once approved.'
+        });
+
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return {
+          verified: true,
+          underReview: true,
+          fakeNews: false,
+          score: finalScore,
+          mediaUrl: publicUrl,
+          authenticityLabel,
+          scoreBreakdown,
+          logId: logEntry?.id
+        };
+      }
+
       if (finalVerdict === 'REAL') {
         const storagePath = `${userId}/${Date.now()}_${data.filename}`;
         const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(storagePath);
@@ -308,7 +366,7 @@ async function runAIVerification(scriptPath: string, filePath: string): Promise<
         else reject(new Error('Invalid AI output'));
       } catch (e) { reject(e); }
     });
-    setTimeout(() => { python.kill(); reject(new Error('AI Timeout')); }, 15000);
+    setTimeout(() => { python.kill(); reject(new Error('AI Timeout')); }, 120000);
   });
 }
 
@@ -328,7 +386,7 @@ async function runContextVerification(scriptPath: string, caption: string, fileP
         else reject(new Error('Invalid Context output'));
       } catch (e) { reject(e); }
     });
-    setTimeout(() => { python.kill(); reject(new Error('Context Timeout')); }, 5000);
+    setTimeout(() => { python.kill(); reject(new Error('Context Timeout')); }, 60000);
   });
 }
 
