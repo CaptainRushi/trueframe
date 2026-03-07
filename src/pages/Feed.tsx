@@ -74,7 +74,7 @@ export default function Feed() {
                 key={post.id}
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                transition={{ delay: Math.min(index, 5) * 0.1 }}
               >
                 <PostCard
                   id={post.id}

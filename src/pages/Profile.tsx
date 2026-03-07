@@ -418,7 +418,7 @@ export default function Profile() {
           <div className="relative group">
             <div className="w-32 h-32 rounded-full border-4 border-background shadow-xl overflow-hidden bg-muted">
               {profile.avatarUrl ? (
-                <img src={profile.avatarUrl} alt={profile.username} className="w-full h-full object-cover" />
+                <img src={profile.avatarUrl} alt={profile.username} loading="lazy" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-primary/10 text-primary font-bold text-4xl">
                   {profile.username.charAt(0).toUpperCase()}
@@ -695,7 +695,7 @@ export default function Profile() {
                     onClick={() => setSelectedPost(post)}
                     className="aspect-square bg-muted rounded-xl overflow-hidden relative group cursor-pointer"
                   >
-                    <img src={post.media_url} alt="" className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                    <img src={post.media_url} alt="" loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-105" />
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4">
                       {post.caption && (
                         <p className="text-white text-xs text-center line-clamp-2 mb-4">{post.caption}</p>
@@ -732,7 +732,7 @@ export default function Profile() {
                     onClick={() => setSelectedPost(reel)}
                     className="aspect-[9/16] bg-muted rounded-xl overflow-hidden relative group cursor-pointer"
                   >
-                    <video src={reel.media_url} className="w-full h-full object-cover" />
+                    <video src={reel.media_url} preload="metadata" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                       <div className="w-8 h-8 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                         <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-white border-b-[6px] border-b-transparent ml-1" />

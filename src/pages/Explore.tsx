@@ -165,9 +165,9 @@ export default function Explore() {
                 {exploreFeed.map((post, i) => (
                   <Link key={post.id} to={`/profile/${post.profiles?.username}`} className="block relative aspect-square bg-muted rounded-xl overflow-hidden group">
                     {post.media_type === 'video' ? (
-                      <video src={post.media_url} className="w-full h-full object-cover" />
+                      <video src={post.media_url} preload="metadata" className="w-full h-full object-cover" />
                     ) : (
-                      <img src={post.media_url} alt={post.caption} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                      <img src={post.media_url} alt={post.caption} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                     )}
 
                     {/* Overlay */}
@@ -199,9 +199,9 @@ export default function Explore() {
                   {searchPosts.map((post) => (
                     <Link key={post.id} to={`/profile/${post.profiles?.username}`} className="block relative aspect-square bg-muted rounded-xl overflow-hidden group">
                       {post.media_type === 'video' ? (
-                        <video src={post.media_url} className="w-full h-full object-cover" />
+                        <video src={post.media_url} preload="metadata" className="w-full h-full object-cover" />
                       ) : (
-                        <img src={post.media_url} alt={post.caption} className="w-full h-full object-cover" />
+                        <img src={post.media_url} alt={post.caption} loading="lazy" className="w-full h-full object-cover" />
                       )}
                       <div className="absolute top-2 right-2">
                         <VerifiedBadge size="sm" />
