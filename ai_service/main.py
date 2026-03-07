@@ -14,6 +14,7 @@ from core.models import EfficientNetONNXDetector, HuggingFaceDeepfakeDetector
 from core.heuristics import ArtifactAnalyzer
 from core.temporal import TemporalAnalyzer
 from core.compression import CompressionAnalyzer
+from core.patches import PatchVoter
 
 
 class DeepfakeGuardProcess:
@@ -26,6 +27,7 @@ class DeepfakeGuardProcess:
         self.artifact_analyzer = ArtifactAnalyzer()
         self.temporal_analyzer = TemporalAnalyzer()
         self.compression_analyzer = CompressionAnalyzer()
+        self.patch_voter = PatchVoter()
 
     def run(self, file_path):
         """
@@ -73,9 +75,16 @@ class DeepfakeGuardProcess:
             return self._finalize_verdict(0.1, 0.0, 0.0, meta_score, 0.0, 0.1, ["no_clear_faces_detected"])
 
         # 4. Neural Models Inference (Ensemble)
-        onnx_scores = self.model.predict_batch(valid_crops)
-        hf_scores = self.hf_model.predict_batch(valid_crops)
-        
+        # For single images, use multi-patch voting to reduce false positives
+        if not is_video and len(valid_crops) == 1:
+            patches = self.patch_voter.extract_patches(valid_crops[0])
+            all_crops = valid_crops + patches
+        else:
+            all_crops = valid_crops
+
+        onnx_scores = self.model.predict_batch(all_crops)
+        hf_scores = self.hf_model.predict_batch(all_crops)
+
         # Average fusion for higher security
         model_scores = [(o + h) / 2 for o, h in zip(onnx_scores, hf_scores)]
         avg_model_score = float(np.mean(model_scores))
@@ -108,20 +117,20 @@ class DeepfakeGuardProcess:
     def _finalize_verdict(self, model_score, artifact_score, temporal_score,
                           metadata_score, compression_score, final_score, signals):
         """
-        Decision Thresholds:
-        final_score >= 0.60 -> REJECT (Deepfake)
-        0.40 – 0.59        -> REJECT (Unsafe)
-        < 0.40             -> APPROVE
+        Decision Thresholds (3-tier):
+        final_score >= 0.80 -> REJECTED (Deepfake)
+        0.60 – 0.79        -> UNDER_REVIEW (needs manual review)
+        < 0.60             -> APPROVED (real)
         """
         verdict = "APPROVED"
         if final_score >= THRESHOLD_REJECT:
             verdict = "REJECTED"
             if "deepfake_detected" not in signals:
                 signals.append("synthetic_generation_signal")
-        elif final_score >= THRESHOLD_UNSAFE:
-            verdict = "REJECTED"
-            if "unsafe_content" not in signals:
-                signals.append("high_manipulation_risk")
+        elif final_score >= THRESHOLD_APPROVE:
+            verdict = "UNDER_REVIEW"
+            if "needs_review" not in signals:
+                signals.append("borderline_score_needs_review")
 
         unique_signals = list(set(signals))
 
@@ -167,7 +176,7 @@ if __name__ == "__main__":
             "metadata_score": 0.0,
             "compression_score": 0.0,
             "final_score": 0.1,
-            "verdict": "APPROVED",
-            "signals": [f"engine_error: {str(e)}", "fail_open_test"]
+            "verdict": "REJECTED",
+            "signals": [f"engine_error: {str(e)}", "fail_closed"]
         }))
-        sys.exit(0)
+        sys.exit(1)

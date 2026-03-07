@@ -107,7 +107,6 @@ export default function Upload() {
 
       const formData = new FormData();
       formData.append('caption', caption);
-      formData.append('file', file);
       formData.append('uploadSource', uploadMode);
       if (uploadMode === 'CAMERA') {
         formData.append('deviceMetadata', JSON.stringify({
@@ -116,6 +115,7 @@ export default function Upload() {
           source: 'TrueFrame Camera'
         }));
       }
+      formData.append('file', file);
 
       setState('verifying');
 
@@ -130,12 +130,12 @@ export default function Upload() {
       const data = await response.json();
       setResult(data);
 
-      if (data.verified && !data.fakeNews) {
+      if (data.underReview) {
         setState('approved');
-        // Navigate to feed after 2 seconds to show success message
-        setTimeout(() => {
-          navigate('/feed');
-        }, 2000);
+        setTimeout(() => navigate('/feed'), 3000);
+      } else if (data.verified && !data.fakeNews) {
+        setState('approved');
+        setTimeout(() => navigate('/feed'), 2000);
       } else {
         setState('rejected');
       }
