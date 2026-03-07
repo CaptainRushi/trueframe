@@ -46,40 +46,14 @@ export async function feedRoutes(fastify: FastifyInstance) {
 
             console.log(`[FEED-API] Found ${rawPosts.length} posts`);
 
-            // 2. Fetch Trust Metrics for all authors in this list
-            const authorIds = [...new Set(rawPosts.map((p: any) => p.user_id))];
-
-            // We'll calculate a "Trust Score" for each author
-            // In a production app, we'd pre-calculate this or use an RPC
-            // For now, we'll fetch verification counts
-            const authorTrustMap: Record<string, number> = {};
-
-            for (const id of authorIds) {
-                const { count: total } = await supabase
-                    .from('verification_logs')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('user_id', id);
-
-                const { count: fake } = await supabase
-                    .from('verification_logs')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('user_id', id)
-                    .in('verdict', ['FAKE', 'REJECTED', 'BLOCK_FAKE', 'BLOCK_UNVERIFIED', 'BLOCK_ERROR']);
-
-                const totalVal = total || 0;
-                const fakeVal = fake || 0;
-                const fakeRate = totalVal > 0 ? (fakeVal / totalVal) : 0;
+            const rankedPosts = rawPosts.map((post: any) => {
+                const profile = post.profiles || {};
 
                 // Trust Status: Trusted (1.0), At Risk (0.5), Under Review (0.1)
                 let trustWeight = 1.0;
-                if (fakeRate > 0.3) trustWeight = 0.1;
-                else if (fakeRate > 0.1) trustWeight = 0.5;
+                if (profile.trust_status === 'UNDER_REVIEW' || profile.trust_status === 'RESTRICTED') trustWeight = 0.1;
+                else if (profile.trust_status === 'AT_RISK') trustWeight = 0.5;
 
-                authorTrustMap[id as string] = trustWeight;
-            }
-
-            const rankedPosts = rawPosts.map((post: any) => {
-                const trustWeight = authorTrustMap[post.user_id as string] || 0.5;
                 const hoursOld = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 3600);
                 const recencyScore = Math.max(0, 1 - (hoursOld / 72)); // 0 if > 3 days old
 

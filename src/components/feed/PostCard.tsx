@@ -216,6 +216,7 @@ export function PostCard({
         <img
           src={image}
           alt="Post content"
+          loading="lazy"
           className="w-full h-full object-cover"
         />
         {isVerified && (
