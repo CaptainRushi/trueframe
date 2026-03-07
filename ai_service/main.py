@@ -10,7 +10,7 @@ from config import *
 from core.precheck import MetadataScanner
 from core.extractor import FrameExtractor
 from core.detector import FaceAnalyzer
-from core.models import EfficientNetONNXDetector
+from core.models import EfficientNetONNXDetector, HuggingFaceDeepfakeDetector
 from core.heuristics import ArtifactAnalyzer
 from core.temporal import TemporalAnalyzer
 from core.compression import CompressionAnalyzer
@@ -22,6 +22,7 @@ class DeepfakeGuardProcess:
         self.frame_extractor = FrameExtractor()
         self.face_analyzer = FaceAnalyzer()
         self.model = EfficientNetONNXDetector(MODEL_PATH)
+        self.hf_model = HuggingFaceDeepfakeDetector()
         self.artifact_analyzer = ArtifactAnalyzer()
         self.temporal_analyzer = TemporalAnalyzer()
         self.compression_analyzer = CompressionAnalyzer()
@@ -71,8 +72,12 @@ class DeepfakeGuardProcess:
         if not valid_crops:
             return self._finalize_verdict(0.1, 0.0, 0.0, meta_score, 0.0, 0.1, ["no_clear_faces_detected"])
 
-        # 4. EfficientNet Inference (Batch)
-        model_scores = self.model.predict_batch(valid_crops)
+        # 4. Neural Models Inference (Ensemble)
+        onnx_scores = self.model.predict_batch(valid_crops)
+        hf_scores = self.hf_model.predict_batch(valid_crops)
+        
+        # Average fusion for higher security
+        model_scores = [(o + h) / 2 for o, h in zip(onnx_scores, hf_scores)]
         avg_model_score = float(np.mean(model_scores))
 
         # 5. Heuristics & Temporal Analysis
@@ -121,7 +126,7 @@ class DeepfakeGuardProcess:
         unique_signals = list(set(signals))
 
         report = {
-            "model": "efficientnet-b0",
+            "model": "efficientnet+huggingface-ensemble",
             "model_score": round(model_score, 4),
             "artifact_score": round(artifact_score, 4),
             "temporal_score": round(temporal_score, 4),
@@ -137,7 +142,7 @@ class DeepfakeGuardProcess:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({
-            "model": "efficientnet-b0",
+            "model": "efficientnet+huggingface-ensemble",
             "model_score": 0.1,
             "artifact_score": 0.0,
             "temporal_score": 0.0,
@@ -155,7 +160,7 @@ if __name__ == "__main__":
         print(json.dumps(report))
     except Exception as e:
         print(json.dumps({
-            "model": "efficientnet-b0",
+            "model": "efficientnet+huggingface-ensemble",
             "model_score": 0.1,
             "artifact_score": 0.0,
             "temporal_score": 0.0,

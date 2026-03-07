@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -185,18 +185,16 @@ export default function Upload() {
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => { setUploadMode('GALLERY'); stopCamera(); }}
-            className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-              uploadMode === 'GALLERY' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
+            className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${uploadMode === 'GALLERY' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
           >
             <ImageIcon className="w-4 h-4" />
             Gallery Upload
           </button>
           <button
             onClick={() => { setUploadMode('CAMERA'); startCamera(); }}
-            className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-              uploadMode === 'CAMERA' ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
+            className={`flex-1 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${uploadMode === 'CAMERA' ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
           >
             <Camera className="w-4 h-4" />
             Verified Capture
@@ -249,9 +247,8 @@ export default function Upload() {
               >
                 <div
                   onClick={() => uploadMode === 'GALLERY' ? fileInputRef.current?.click() : undefined}
-                  className={`group relative aspect-square w-full rounded-[2.5rem] border-2 border-dashed border-border flex flex-col items-center justify-center gap-6 cursor-pointer hover:border-primary/50 transition-all bg-card/50 hover:bg-primary/5 shadow-inner ${
-                    uploadMode === 'CAMERA' && cameraStream && !file ? 'hidden' : ''
-                  }`}
+                  className={`group relative aspect-square w-full rounded-[2.5rem] border-2 border-dashed border-border flex flex-col items-center justify-center gap-6 cursor-pointer hover:border-primary/50 transition-all bg-card/50 hover:bg-primary/5 shadow-inner ${uploadMode === 'CAMERA' && cameraStream && !file ? 'hidden' : ''
+                    }`}
                 >
                   <input
                     type="file"
