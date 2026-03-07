@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 from PIL import Image
+import torch
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 class EfficientNetONNXDetector:
     def __init__(self, model_path):
@@ -102,4 +104,64 @@ class EfficientNetONNXDetector:
             
         except Exception as e:
             print(f"[AI-MODEL] Batch inference error: {e}")
+            return [0.1] * len(face_crops_bgr)
+
+class HuggingFaceDeepfakeDetector:
+    def __init__(self, model_name="dima806/deepfake_vs_real_image_detection"):
+        self.model_name = model_name
+        self.model = None
+        self.processor = None
+        self.fake_idx = 0
+        try:
+            print(f"[AI-MODEL] Loading HuggingFace model: {model_name}")
+            self.processor = AutoImageProcessor.from_pretrained(model_name)
+            self.model = AutoModelForImageClassification.from_pretrained(model_name)
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.model.to(self.device)
+            self.model.eval()
+
+            # Autodetect which index corresponds to "fake"
+            for idx, label in self.model.config.id2label.items():
+                if "fake" in label.lower() or "forged" in label.lower() or "manipulat" in label.lower():
+                    self.fake_idx = int(idx)
+                    break
+            print(f"[AI-MODEL] HuggingFace loaded on {self.device}. Fake label mapped to index: {self.fake_idx}")
+        except Exception as e:
+            print(f"[AI-MODEL] Error loading HuggingFace model: {e}")
+
+    def preprocess(self, face_crop_bgr):
+        # Convert BGR (OpenCV) to RGB (PIL)
+        img_rgb = cv2.cvtColor(face_crop_bgr, cv2.COLOR_BGR2RGB)
+        return Image.fromarray(img_rgb)
+
+    def predict(self, face_crop_bgr):
+        if self.model is None or self.processor is None:
+            return 0.1 # fallback
+        try:
+            pil_img = self.preprocess(face_crop_bgr)
+            inputs = self.processor(images=pil_img, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                probs = outputs.logits.softmax(dim=1)
+                score = probs[0][self.fake_idx].item()
+            return np.clip(score, 0.0, 1.0)
+        except Exception as e:
+            print(f"[AI-MODEL] HF Inference error: {e}")
+            return 0.1
+
+    def predict_batch(self, face_crops_bgr):
+        if not face_crops_bgr:
+            return []
+        if self.model is None or self.processor is None:
+            return [0.1] * len(face_crops_bgr)
+        try:
+            imgs = [self.preprocess(crop) for crop in face_crops_bgr]
+            inputs = self.processor(images=imgs, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                probs = outputs.logits.softmax(dim=1)
+                scores = probs[:, self.fake_idx].tolist()
+            return [np.clip(s, 0.0, 1.0) for s in scores]
+        except Exception as e:
+            print(f"[AI-MODEL] HF Batch inference error: {e}")
             return [0.1] * len(face_crops_bgr)
