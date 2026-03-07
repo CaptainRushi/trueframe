@@ -51,24 +51,27 @@ export async function transparencyRoutes(fastify: FastifyInstance) {
                 ? Math.round(((scoreBreakdown.artifact_score || 0)) * 100)
                 : 0;
 
-            // Fetch content proof if exists
-            const { data: proof } = await supabase
-                .from('content_proofs')
-                .select('*')
-                .eq('post_id', postId)
-                .single();
+            // Fetch content proof and flags in parallel
+            const [proofRes, flagCountRes, confirmedFlagsRes] = await Promise.all([
+                supabase
+                    .from('content_proofs')
+                    .select('*')
+                    .eq('post_id', postId)
+                    .single(),
+                supabase
+                    .from('community_flags')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('post_id', postId),
+                supabase
+                    .from('community_flags')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('post_id', postId)
+                    .eq('status', 'CONFIRMED')
+            ]);
 
-            // Fetch community flags count
-            const { count: flagCount } = await supabase
-                .from('community_flags')
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', postId);
-
-            const { count: confirmedFlags } = await supabase
-                .from('community_flags')
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', postId)
-                .eq('status', 'CONFIRMED');
+            const proof = proofRes.data;
+            const flagCount = flagCountRes.count;
+            const confirmedFlags = confirmedFlagsRes.count;
 
             return {
                 postId: post.id,
