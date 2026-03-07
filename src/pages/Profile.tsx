@@ -43,7 +43,7 @@ interface ProfileData {
   real_count?: number;
   fake_count?: number;
   trustScore?: number;
-  status: 'TRUSTED' | 'AT_RISK' | 'RESTRICTED' | 'WARNING' | 'NEW_USER';
+  status: 'TRUSTED' | 'AT_RISK' | 'UNDER_REVIEW' | 'WARNING' | 'NEW_USER';
   posts: any[];
   reels: any[];
   followersCount: number;
@@ -286,8 +286,8 @@ export default function Profile() {
       case 'AT_RISK':
       case 'WARNING':
         return { icon: ShieldAlert, color: 'text-yellow-500', bg: 'bg-yellow-500/10', label: 'At Risk' };
-      case 'RESTRICTED':
-        return { icon: ShieldX, color: 'text-red-500', bg: 'bg-red-500/10', label: 'Restricted' };
+      case 'UNDER_REVIEW':
+        return { icon: ShieldX, color: 'text-red-500', bg: 'bg-red-500/10', label: 'Under Review' };
       case 'NEW_USER':
         return { icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-500/10', label: 'New Creator' };
       default:
@@ -478,7 +478,9 @@ export default function Profile() {
                     </div>
                   )}
                   {(profile as any).identity_verified && (
-                    <CheckCircle2 className="w-5 h-5 text-blue-500" title="Identity Verified" />
+                    <span title="Identity Verified">
+                      <CheckCircle2 className="w-5 h-5 text-blue-500" />
+                    </span>
                   )}
                 </div>
                 <p className="text-muted-foreground mb-4">@{profile.username}</p>

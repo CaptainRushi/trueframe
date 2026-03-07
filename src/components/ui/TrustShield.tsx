@@ -21,13 +21,13 @@ const sizeConfig = {
 };
 
 function getShieldConfig(trustScore: number, status: string) {
-  if (status === "RESTRICTED" || trustScore < 25) {
+  if (status === "UNDER_REVIEW" || trustScore < 25) {
     return {
       Icon: ShieldX,
       color: "text-destructive",
       bg: "bg-destructive/10",
       border: "border-destructive/20",
-      label: "Restricted",
+      label: "Under Review",
       tooltipBg: "bg-destructive",
     };
   }
