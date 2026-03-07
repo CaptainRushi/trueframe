@@ -90,7 +90,7 @@ export function TransparencyPanel({ postId, isOpen, onClose }: TransparencyPanel
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center"
+          className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center"
           onClick={onClose}
         >
           <motion.div
@@ -101,7 +101,7 @@ export function TransparencyPanel({ postId, isOpen, onClose }: TransparencyPanel
             className="bg-card w-full max-w-md max-h-[85vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl border border-border shadow-2xl"
           >
             {/* Header */}
-            <div className="sticky top-0 bg-card/95 backdrop-blur-md border-b border-border p-4 flex items-center justify-between rounded-t-3xl">
+            <div className="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between rounded-t-3xl">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-primary" />
                 <h2 className="text-lg font-black">Content Transparency</h2>
