@@ -13,6 +13,7 @@ import Notifications from "./pages/Notifications";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import PostPage from "./pages/PostPage";
+import CreatorProgram from "./pages/CreatorProgram";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import { useAutoReload } from "./hooks/useAutoReload";
@@ -39,6 +40,7 @@ const App = () => {
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/profile/:username?" element={<Profile />} />
                 <Route path="/notifications" element={<Notifications />} />
+                <Route path="/creator" element={<CreatorProgram />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />

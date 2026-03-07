@@ -1,17 +1,45 @@
-import { Home, Search, PlusSquare, BarChart3, User } from "lucide-react";
+import { Home, Search, PlusSquare, Bell, User } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { BACKEND_URL } from "@/lib/api";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/feed" },
   { icon: Search, label: "Explore", path: "/explore" },
   { icon: PlusSquare, label: "Upload", path: "/upload" },
-  { icon: BarChart3, label: "Dashboard", path: "/dashboard" },
+  { icon: Bell, label: "Activity", path: "/notifications" },
   { icon: User, label: "Profile", path: "/profile" },
 ];
 
 export function BottomNav() {
   const location = useLocation();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchUnreadCount = async () => {
+    try {
+      if (!supabase) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const res = await fetch(`${BACKEND_URL}/api/notifications/unread-count`, {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.count || 0);
+      }
+    } catch (e) {
+      // Silently fail
+    }
+  };
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border">
@@ -19,6 +47,7 @@ export function BottomNav() {
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           const isUpload = item.label === "Upload";
+          const isNotifications = item.label === "Activity";
 
           return (
             <Link
@@ -39,12 +68,18 @@ export function BottomNav() {
                   <motion.div
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
+                    className="relative"
                   >
                     <item.icon
                       className={`w-6 h-6 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"
                         }`}
                       fill={isActive ? "currentColor" : "none"}
                     />
+                    {isNotifications && unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1.5 bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
                   </motion.div>
                   {isActive && (
                     <motion.div

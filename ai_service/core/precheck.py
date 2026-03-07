@@ -2,6 +2,7 @@ import os
 import subprocess
 import json
 
+
 class MetadataScanner:
     def scan(self, file_path):
         """
@@ -11,27 +12,49 @@ class MetadataScanner:
         score = 0.0
         signals = []
 
-        # 1. Check file existence
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File {file_path} not found.")
 
-        # 2. Simulate EXIF/Metadata extraction (using ffprobe usually, mocking locally)
-        # Real implementation would use: ffprobe -v quiet -print_format json -show_format -show_streams file_path
-        
-        # Mock logic for "Suspicious encoding chains"
-        # In production, check for 'Lavf58.29.100' or other common ffmpeg default tags often used by GANs
-        
-        # Mocking a check:
+        # 1. File size check
         file_size = os.path.getsize(file_path)
-        if file_size < 1000: # Suspiciously small
-             score += 0.2
-             signals.append("abnormal_file_size")
+        if file_size < 1000:
+            score += 0.2
+            signals.append("abnormal_file_size")
 
-        # 3. Check for specific known bad signatures (Mock)
-        # e.g., missing specific sensor noise metadata
-        has_sensor_data = False # Mock
-        if not has_sensor_data:
+        # 2. Real metadata extraction via ffprobe
+        try:
+            result = subprocess.run(
+                ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+                 '-show_format', '-show_streams', file_path],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                metadata = json.loads(result.stdout)
+
+                # Check for known synthetic encoder signatures
+                encoder = metadata.get('format', {}).get('tags', {}).get('encoder', '')
+                if encoder and ('Lavf' in encoder or 'lavf' in encoder):
+                    score += 0.3
+                    signals.append("suspicious_encoder_signature")
+
+                # Check for missing camera metadata
+                streams = metadata.get('streams', [])
+                has_camera_data = any(
+                    s.get('tags', {}).get('creation_time') for s in streams
+                )
+                if not has_camera_data:
+                    score += 0.1
+                    signals.append("missing_camera_metadata")
+            else:
+                score += 0.1
+                signals.append("metadata_extraction_failed")
+
+        except FileNotFoundError:
+            # ffprobe not installed — fall back to basic checks
             score += 0.1
             signals.append("missing_sensor_metadata")
+        except (subprocess.TimeoutExpired, json.JSONDecodeError):
+            score += 0.1
+            signals.append("metadata_extraction_failed")
 
         return max(0.0, min(1.0, score)), signals

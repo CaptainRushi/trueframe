@@ -23,6 +23,8 @@ import {
   MessageCircle
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { AuthenticityTimeline } from "@/components/profile/AuthenticityTimeline";
+import { Award } from "lucide-react";
 
 import { BACKEND_URL } from "@/lib/api";
 
@@ -40,6 +42,7 @@ interface ProfileData {
   total_attempts?: number;
   real_count?: number;
   fake_count?: number;
+  trustScore?: number;
   status: 'TRUSTED' | 'AT_RISK' | 'RESTRICTED' | 'WARNING' | 'NEW_USER';
   posts: any[];
   reels: any[];
@@ -468,6 +471,15 @@ export default function Profile() {
               <>
                 <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
                   <h1 className="text-3xl font-bold">{profile.displayName || profile.username}</h1>
+                  {(profile as any).is_verified_creator && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 rounded-full border border-primary/20">
+                      <Award className="w-4 h-4 text-primary" />
+                      <span className="text-[10px] font-bold text-primary uppercase">Verified Creator</span>
+                    </div>
+                  )}
+                  {(profile as any).identity_verified && (
+                    <CheckCircle2 className="w-5 h-5 text-blue-500" title="Identity Verified" />
+                  )}
                 </div>
                 <p className="text-muted-foreground mb-4">@{profile.username}</p>
 
@@ -535,40 +547,82 @@ export default function Profile() {
             )}
           </div>
 
-          {/* 2. TRUST STATUS SUMMARY */}
-          <div className="w-full md:w-64 bg-background/50 rounded-2xl p-4 border border-border">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-green-500" />
-              Trust Score
-            </h3>
-
-            {/* Real % */}
-            <div className="mb-3">
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium text-green-600">Real Uploads ({profile.realUploads})</span>
-                <span className="font-bold">{profile.realPercentage}%</span>
+          {/* 2. TRUST STATUS SUMMARY — Numeric Score + Breakdown */}
+          <div className="w-full md:w-72 bg-background/50 rounded-2xl p-5 border border-border">
+            {/* Circular Trust Score */}
+            <div className="flex items-center gap-4 mb-4">
+              <div className="relative w-20 h-20 flex-shrink-0">
+                <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 72 72">
+                  <circle cx="36" cy="36" r="30" fill="none" stroke="currentColor" strokeWidth="4" className="text-muted/30" />
+                  <motion.circle
+                    cx="36" cy="36" r="30" fill="none"
+                    strokeWidth="4" strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 30}`}
+                    initial={{ strokeDashoffset: 2 * Math.PI * 30 }}
+                    animate={{ strokeDashoffset: 2 * Math.PI * 30 * (1 - (profile.trustScore ?? 50) / 100) }}
+                    transition={{ duration: 1.2, ease: "easeOut" }}
+                    className={
+                      (profile.trustScore ?? 50) >= 70 ? "text-green-500" :
+                        (profile.trustScore ?? 50) >= 50 ? "text-blue-500" :
+                          (profile.trustScore ?? 50) >= 25 ? "text-yellow-500" : "text-red-500"
+                    }
+                    stroke="currentColor"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xl font-black">{profile.trustScore ?? 50}</span>
+                </div>
               </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${profile.realPercentage}%` }}
-                  className="h-full bg-green-500 rounded-full"
-                />
+              <div>
+                <h3 className="text-sm font-bold mb-0.5">Trust Score</h3>
+                <p className="text-[10px] text-muted-foreground leading-tight">Weighted composite of verification history, account maturity, and community standing</p>
               </div>
             </div>
 
-            {/* Fake % */}
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-medium text-red-600">Fake Uploads ({profile.fakeUploads})</span>
-                <span className="font-bold">{profile.fakePercentage}%</span>
+            {/* Trust Breakdown */}
+            <div className="space-y-2.5 mb-4">
+              {[
+                { label: "Verification Rate", max: 40, value: Math.round(profile.totalUploads > 0 ? (profile.realUploads / profile.totalUploads) * 40 : 20), color: "bg-green-500" },
+                { label: "Account Age", max: 20, value: Math.min(20, Math.round(20 * 0.5)), color: "bg-blue-500" },
+                { label: "Activity Volume", max: 20, value: Math.min(20, Math.round((profile.totalUploads / 50) * 20)), color: "bg-purple-500" },
+                { label: "Community Rep", max: 20, value: Math.min(20, Math.round(((profile.followersCount || 0) / 100) * 10) + Math.min(5, Math.round(profile.posts.length * 0.5))), color: "bg-amber-500" },
+              ].map((item) => (
+                <div key={item.label}>
+                  <div className="flex justify-between text-[10px] mb-0.5">
+                    <span className="font-medium text-muted-foreground">{item.label}</span>
+                    <span className="font-bold">{item.value}/{item.max}</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(item.value / item.max) * 100}%` }}
+                      transition={{ duration: 0.8, delay: 0.2 }}
+                      className={`h-full rounded-full ${item.color}`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Secondary: Real/Fake % bars */}
+            <div className="pt-3 border-t border-border space-y-2">
+              <div>
+                <div className="flex justify-between text-[10px] mb-0.5">
+                  <span className="font-medium text-green-600">Real ({profile.realUploads})</span>
+                  <span className="font-bold">{profile.realPercentage}%</span>
+                </div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${profile.realPercentage}%` }} className="h-full bg-green-500 rounded-full" />
+                </div>
               </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${profile.fakePercentage}%` }}
-                  className="h-full bg-red-500 rounded-full"
-                />
+              <div>
+                <div className="flex justify-between text-[10px] mb-0.5">
+                  <span className="font-medium text-red-600">Fake ({profile.fakeUploads})</span>
+                  <span className="font-bold">{profile.fakePercentage}%</span>
+                </div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${profile.fakePercentage}%` }} className="h-full bg-red-500 rounded-full" />
+                </div>
               </div>
             </div>
           </div>
@@ -595,6 +649,11 @@ export default function Profile() {
             {profile.fakeUploads}
           </p>
         </div>
+      </div>
+
+      {/* AUTHENTICITY TIMELINE */}
+      <div className="mb-8">
+        <AuthenticityTimeline username={profile.username} />
       </div>
 
       {/* 3. CONTENT TABS (POSTS & REELS) */}

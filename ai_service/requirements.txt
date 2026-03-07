@@ -8,3 +8,4 @@ tenacity
 torch
 transformers
 scikit-image
+mediapipe

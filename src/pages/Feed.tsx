@@ -87,6 +87,9 @@ export default function Feed() {
                   comments={post.comment_count || 0}
                   timestamp={new Date(post.created_at).toLocaleDateString()}
                   isVerified={post.verification?.verdict === 'REAL'}
+                  authenticityLabel={post.verification?.authenticity_label || post.authenticity_label || 'VERIFIED_REAL'}
+                  authorTrustScore={post.profiles?.trust_score ?? 50}
+                  authorTrustStatus={post.profiles?.trust_status || 'NEW_USER'}
                   onDelete={handlePostDelete}
                 />
               </motion.div>

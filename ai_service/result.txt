@@ -1,0 +1,2 @@
+﻿[AI-MODEL] WARNING: Model file not found at C:\Users\rushi\Downloads\Trueframe-1\verified-stream\ai_service\models\efficientnet_b0_v1.onnx
+{"model": "efficientnet-b0", "model_score": 1.0, "final_score": 0.46, "verdict": "REJECTED", "signals": ["high_manipulation_risk"]}

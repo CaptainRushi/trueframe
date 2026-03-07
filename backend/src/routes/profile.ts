@@ -99,6 +99,7 @@ export async function profileRoutes(fastify: FastifyInstance) {
     fastify.post('/init', async (request, reply) => {
         const authHeader = request.headers.authorization;
         if (!authHeader) {
+            fastify.log.warn('Missing Authorization header on /init');
             return reply.code(401).send({ error: 'Unauthorized' });
         }
 
@@ -107,6 +108,7 @@ export async function profileRoutes(fastify: FastifyInstance) {
             const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
             if (authError || !user) {
+                fastify.log.warn({ authError }, 'Invalid Supabase token on /init');
                 return reply.code(401).send({ error: 'Invalid token' });
             }
 
@@ -296,7 +298,7 @@ export async function profileRoutes(fastify: FastifyInstance) {
             const videoReels = posts?.filter((p: any) => p.media_type === 'video') || [];
 
             return {
-                id: profile.id, // Expose ID for ownership check
+                id: profile.id,
                 username: profile.username,
                 displayName: profile.display_name,
                 avatarUrl: profile.avatar_url,
@@ -313,7 +315,12 @@ export async function profileRoutes(fastify: FastifyInstance) {
                 total_attempts: profile.total_attempts ?? totalUploads,
                 real_count: profile.real_count ?? verifiedUploads,
                 fake_count: profile.fake_count ?? blockedUploads,
+                trustScore: profile.trust_score ?? 50,
                 status,
+                is_verified_creator: profile.is_verified_creator || false,
+                verified_creator_at: profile.verified_creator_at,
+                is_community_verifier: profile.is_community_verifier || false,
+                identity_verified: profile.identity_verified || false,
                 posts: imagePosts,
                 reels: videoReels
             };
@@ -398,6 +405,15 @@ export async function profileRoutes(fastify: FastifyInstance) {
                 if (error.code === '23505') return { success: true }; // Already following
                 throw error;
             }
+
+            // Send notification
+            await supabase.from('notifications').insert({
+                user_id: targetProfile.id,
+                type: 'FOLLOW',
+                title: 'New Follower',
+                message: 'started following you',
+                related_user_id: user.id
+            });
 
             return { success: true };
         } catch (error) {

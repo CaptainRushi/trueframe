@@ -18,12 +18,17 @@ export async function feedRoutes(fastify: FastifyInstance) {
                         username,
                         display_name,
                         avatar_url,
-                        bio
+                        bio,
+                        trust_score,
+                        trust_status,
+                        is_verified_creator
                     ),
                     verification:verification_log_id (
                         verdict,
                         score,
-                        created_at
+                        created_at,
+                        authenticity_label,
+                        score_breakdown
                     )
                 `)
                 .order('created_at', { ascending: false })
@@ -78,9 +83,14 @@ export async function feedRoutes(fastify: FastifyInstance) {
                 const hoursOld = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 3600);
                 const recencyScore = Math.max(0, 1 - (hoursOld / 72)); // 0 if > 3 days old
 
+                // Boost verified creators
+                const creatorBoost = post.profiles?.is_verified_creator ? 0.15 : 0;
+                // Boost camera-captured content
+                const cameraBoost = post.upload_source === 'CAMERA' ? 0.05 : 0;
+
                 return {
                     ...post,
-                    rankingScore: (0.7 * trustWeight) + (0.3 * recencyScore)
+                    rankingScore: (0.6 * trustWeight) + (0.25 * recencyScore) + creatorBoost + cameraBoost
                 };
             }).sort((a: any, b: any) => b.rankingScore - a.rankingScore);
 

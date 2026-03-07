@@ -1,8 +1,12 @@
-import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Trash2 } from "lucide-react";
+import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Trash2, Eye, Flag } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { TrustShield } from "@/components/ui/TrustShield";
+import { AuthenticityLabel } from "@/components/ui/AuthenticityLabel";
 import { supabase } from "@/lib/supabase";
+import { TransparencyPanel } from "@/components/transparency/TransparencyPanel";
+import { FlagModal } from "@/components/community/FlagModal";
 
 import { ShareModal } from "@/components/share/ShareModal";
 import { BACKEND_URL } from "@/lib/api";
@@ -18,6 +22,9 @@ interface PostCardProps {
   comments: number;
   timestamp: string;
   isVerified?: boolean;
+  authenticityLabel?: string;
+  authorTrustScore?: number;
+  authorTrustStatus?: string;
   onDelete?: (postId: string) => void;
 }
 
@@ -32,6 +39,9 @@ export function PostCard({
   comments: initialComments,
   timestamp,
   isVerified = true,
+  authenticityLabel = "VERIFIED_REAL",
+  authorTrustScore = 50,
+  authorTrustStatus = "NEW_USER",
   onDelete,
 }: PostCardProps) {
   const [isLiked, setIsLiked] = useState(false);
@@ -42,6 +52,8 @@ export function PostCard({
   const [showMenu, setShowMenu] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showTransparency, setShowTransparency] = useState(false);
+  const [showFlagModal, setShowFlagModal] = useState(false);
 
   useEffect(() => {
     checkLikeStatus();
@@ -162,9 +174,17 @@ export function PostCard({
               </div>
             )}
           </div>
-          <div>
-            <p className="font-semibold text-foreground">{username}</p>
-            <p className="text-xs text-muted-foreground">@{username.toLowerCase()}</p>
+          <div className="flex items-center gap-2">
+            <div>
+              <p className="font-semibold text-foreground">{username}</p>
+              <p className="text-xs text-muted-foreground">@{username.toLowerCase()}</p>
+            </div>
+            <TrustShield
+              trustScore={authorTrustScore}
+              status={authorTrustStatus}
+              size="sm"
+              showScore={false}
+            />
           </div>
         </div>
         {isOwner && (
@@ -199,9 +219,8 @@ export function PostCard({
           className="w-full h-full object-cover"
         />
         {isVerified && (
-          <div className="absolute top-3 right-3 flex items-center gap-2 bg-verified/90 backdrop-blur-sm px-3 py-1.5 rounded-full">
-            <VerifiedBadge size="sm" showTooltip={false} />
-            <span className="text-xs font-medium text-verified-foreground">Verified Real</span>
+          <div className="absolute top-3 right-3">
+            <AuthenticityLabel label={authenticityLabel} />
           </div>
         )}
       </div>
@@ -229,12 +248,22 @@ export function PostCard({
               <Send className="w-6 h-6 text-foreground" />
             </button>
           </div>
-          <motion.button whileTap={{ scale: 0.8 }} onClick={() => setIsSaved(!isSaved)}>
-            <Bookmark
-              className={`w-6 h-6 transition-colors ${isSaved ? "text-primary fill-primary" : "text-foreground"
-                }`}
-            />
-          </motion.button>
+          <div className="flex items-center gap-3">
+            <motion.button whileTap={{ scale: 0.8 }} onClick={() => setShowTransparency(true)} title="View Transparency">
+              <Eye className="w-5 h-5 text-muted-foreground hover:text-primary transition-colors" />
+            </motion.button>
+            {!isOwner && (
+              <motion.button whileTap={{ scale: 0.8 }} onClick={() => setShowFlagModal(true)} title="Flag Content">
+                <Flag className="w-5 h-5 text-muted-foreground hover:text-yellow-500 transition-colors" />
+              </motion.button>
+            )}
+            <motion.button whileTap={{ scale: 0.8 }} onClick={() => setIsSaved(!isSaved)}>
+              <Bookmark
+                className={`w-6 h-6 transition-colors ${isSaved ? "text-primary fill-primary" : "text-foreground"
+                  }`}
+              />
+            </motion.button>
+          </div>
         </div>
 
         {/* Caption */}
@@ -249,6 +278,16 @@ export function PostCard({
         isOpen={showShareModal}
         onClose={() => setShowShareModal(false)}
         post={{ id, caption, verification_status: isVerified ? 'APPROVED' : 'PENDING' }}
+      />
+      <TransparencyPanel
+        postId={id}
+        isOpen={showTransparency}
+        onClose={() => setShowTransparency(false)}
+      />
+      <FlagModal
+        postId={id}
+        isOpen={showFlagModal}
+        onClose={() => setShowFlagModal(false)}
       />
     </motion.article>
   );
