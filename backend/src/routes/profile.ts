@@ -321,6 +321,7 @@ export async function profileRoutes(fastify: FastifyInstance) {
                 verified_creator_at: profile.verified_creator_at,
                 is_community_verifier: profile.is_community_verifier || false,
                 identity_verified: profile.identity_verified || false,
+                identity_verified_at: profile.identity_verified_at || null,
                 posts: imagePosts,
                 reels: videoReels
             };

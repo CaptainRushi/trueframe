@@ -47,9 +47,6 @@ export default function Upload() {
         audio: false
       });
       setCameraStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
     } catch (e) {
       console.error('Camera access denied', e);
       setUploadMode('GALLERY');
@@ -60,6 +57,7 @@ export default function Upload() {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
@@ -79,6 +77,13 @@ export default function Upload() {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
+    }
+  };
+
+  const cameraVideoRef = (el: HTMLVideoElement | null) => {
+    (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
+    if (el && cameraStream) {
+      el.srcObject = cameraStream;
     }
   };
 
@@ -214,7 +219,7 @@ export default function Upload() {
         {uploadMode === 'CAMERA' && cameraStream && !file && (
           <div className="mb-6 relative">
             <video
-              ref={videoRef}
+              ref={cameraVideoRef}
               autoPlay
               playsInline
               muted

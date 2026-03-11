@@ -522,6 +522,15 @@ export default function Profile() {
                   )}
                   {isOwner && (
                     <>
+                      {!(profile as any).identity_verified && (
+                        <button
+                          onClick={() => navigate('/verify')}
+                          className="px-6 py-2 bg-blue-500 text-white border border-blue-600 rounded-full font-semibold hover:bg-blue-600 transition-all flex items-center gap-2"
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                          Verify Identity
+                        </button>
+                      )}
                       <button
                         onClick={() => setIsEditing(true)}
                         className="px-6 py-2 bg-muted text-foreground border border-border rounded-full font-semibold hover:bg-muted/80 transition-all"

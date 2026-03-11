@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { supabase } from '../supabase.js';
+import { triggerSecondaryReview } from './moderation.js';
 
 export async function communityRoutes(fastify: FastifyInstance) {
 
@@ -43,7 +44,10 @@ export async function communityRoutes(fastify: FastifyInstance) {
                 return reply.code(400).send({ error: 'Invalid flag type' });
             }
 
-            // Insert flag
+            // Compute flag weight based on flagger's trust score
+            const flagWeight = Math.max(0.1, profile.trust_score / 100);
+
+            // Insert flag with weight
             const { data: flag, error: flagError } = await supabase
                 .from('community_flags')
                 .insert({
@@ -51,7 +55,8 @@ export async function communityRoutes(fastify: FastifyInstance) {
                     flagger_id: user.id,
                     flag_type: flagType,
                     reason: reason || null,
-                    source_url: sourceUrl || null
+                    source_url: sourceUrl || null,
+                    flag_weight: flagWeight
                 })
                 .select()
                 .single();
@@ -63,14 +68,79 @@ export async function communityRoutes(fastify: FastifyInstance) {
                 throw flagError;
             }
 
-            // Check total flags - if >= 3, auto-notify post owner
-            const { count: totalFlags } = await supabase
+            // Compute weighted flag sum for this post
+            const { data: allFlags } = await supabase
                 .from('community_flags')
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', postId);
+                .select('flag_weight')
+                .eq('post_id', postId)
+                .eq('status', 'PENDING');
 
-            if (totalFlags && totalFlags >= 3) {
-                // Get post owner
+            const totalFlags = allFlags?.length || 0;
+            const weightedSum = allFlags?.reduce((sum: number, f: any) => sum + (f.flag_weight || 1.0), 0) || 0;
+
+            // Check if secondary review was previously restored (higher threshold to prevent re-harassment)
+            const { data: existingReview } = await supabase
+                .from('secondary_reviews')
+                .select('id, decision')
+                .eq('post_id', postId)
+                .maybeSingle();
+
+            const wasRestored = existingReview?.decision === 'RESTORE';
+            const threshold = wasRestored ? 4.0 : 2.5;
+            const alreadyUnderReview = existingReview && !wasRestored;
+            let reviewTriggered = false;
+
+            if (weightedSum >= threshold && !alreadyUnderReview) {
+                // Threshold reached and no existing review — trigger secondary review
+                reviewTriggered = true;
+
+                // Set post to UNDER_REVIEW
+                await supabase.from('posts')
+                    .update({ visibility: 'UNDER_REVIEW', verification_status: 'UNDER_REVIEW' })
+                    .eq('id', postId);
+
+                // Mark flags as having triggered a review
+                await supabase.from('community_flags')
+                    .update({ triggered_review: true })
+                    .eq('post_id', postId)
+                    .eq('status', 'PENDING');
+
+                // Create or reset secondary review record
+                if (wasRestored && existingReview) {
+                    // Reset the previous RESTORE review for re-analysis
+                    await supabase.from('secondary_reviews')
+                        .update({
+                            triggered_by: 'COMMUNITY_FLAGS',
+                            trigger_flag_count: totalFlags,
+                            status: 'PENDING',
+                            secondary_score: null,
+                            frequency_score: null,
+                            gan_artifact_score: null,
+                            noise_consistency_score: null,
+                            edge_coherence_score: null,
+                            patch_variance_score: null,
+                            score_breakdown: null,
+                            signals: null,
+                            decision: null,
+                            decision_reason: null,
+                            manual_reviewer_id: null,
+                            manual_decision: null,
+                            manual_review_reason: null,
+                            manual_reviewed_at: null,
+                            completed_at: null,
+                            created_at: new Date().toISOString()
+                        })
+                        .eq('id', existingReview.id);
+                } else {
+                    await supabase.from('secondary_reviews').insert({
+                        post_id: postId,
+                        triggered_by: 'COMMUNITY_FLAGS',
+                        trigger_flag_count: totalFlags,
+                        status: 'PENDING'
+                    });
+                }
+
+                // Notify post owner
                 const { data: post } = await supabase
                     .from('posts')
                     .select('user_id')
@@ -82,13 +152,35 @@ export async function communityRoutes(fastify: FastifyInstance) {
                         user_id: post.user_id,
                         type: 'FLAG_RESULT',
                         title: 'Content Under Review',
-                        message: `Your post has been flagged by ${totalFlags} community verifiers for review.`,
+                        message: `Your post has been flagged by ${totalFlags} community members and is now under secondary AI review.`,
+                        related_post_id: postId
+                    });
+                }
+
+                // Fire-and-forget secondary review
+                triggerSecondaryReview(postId).catch((err: any) => {
+                    console.error(`[COMMUNITY] Secondary review trigger failed for ${postId}:`, err);
+                });
+            } else if (totalFlags >= 3 && !existingReview) {
+                // Below weighted threshold but 3+ flags — still notify owner
+                const { data: post } = await supabase
+                    .from('posts')
+                    .select('user_id')
+                    .eq('id', postId)
+                    .single();
+
+                if (post) {
+                    await supabase.from('notifications').insert({
+                        user_id: post.user_id,
+                        type: 'FLAG_RESULT',
+                        title: 'Content Flagged',
+                        message: `Your post has been flagged by ${totalFlags} community members for review.`,
                         related_post_id: postId
                     });
                 }
             }
 
-            return { success: true, flag };
+            return { success: true, flag, reviewTriggered };
         } catch (error: any) {
             fastify.log.error(error);
             return reply.code(500).send({ error: 'Failed to flag post' });

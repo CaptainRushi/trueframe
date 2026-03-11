@@ -31,6 +31,7 @@ export async function feedRoutes(fastify: FastifyInstance) {
                         score_breakdown
                     )
                 `)
+                .eq('visibility', 'PUBLIC')
                 .order('created_at', { ascending: false })
                 .limit(50);
 

@@ -1,12 +1,13 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import '@fastify/multipart';
-import { spawn } from 'child_process';
 import { createHash } from 'crypto';
-import { createReadStream, createWriteStream, unlinkSync, existsSync } from 'fs';
+import { createWriteStream, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import { promisify } from 'util';
 import { pipeline } from 'stream';
 import { supabase } from '../supabase.js';
+import { updateProfileTrustScore, trackDeepfakeAlert } from '../lib/trust.js';
+import { runAIScript, getPythonCommand } from '../lib/ai-runner.js';
 
 const pump = promisify(pipeline);
 
@@ -123,7 +124,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       }
 
       // --- 2. DEEPFAKE DETECTION ---
-      const aiEnginePath = join(process.cwd(), '..', 'ai_service', 'main.py');
+      // Determine if image or video to run appropriate engine
+      const isVideo = data.mimetype.startsWith('video');
+      const engineFile = isVideo ? 'training/reel_inference.py' : 'main.py';
+      const aiEnginePath = join(process.cwd(), '..', 'ai_service', engineFile);
+      
       let mediaResult: any;
       try {
         mediaResult = await runAIVerification(aiEnginePath, tempPath);
@@ -351,122 +356,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 }
 
 async function runAIVerification(scriptPath: string, filePath: string): Promise<any> {
-  const pythonCmd = await getPythonCommand();
-  return new Promise((resolve, reject) => {
-    const python = spawn(pythonCmd, [scriptPath, filePath]);
-    let stdout = '';
-    let stderr = '';
-    python.stdout.on('data', (d) => stdout += d.toString());
-    python.stderr.on('data', (d) => stderr += d.toString());
-    python.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`AI Error ${code}: ${stderr}`));
-      try {
-        const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-        if (jsonMatch) resolve(JSON.parse(jsonMatch[0]));
-        else reject(new Error('Invalid AI output'));
-      } catch (e) { reject(e); }
-    });
-    setTimeout(() => { python.kill(); reject(new Error('AI Timeout')); }, 120000);
-  });
+  return runAIScript(scriptPath, [filePath], 120000);
 }
 
 async function runContextVerification(scriptPath: string, caption: string, filePath: string): Promise<any> {
-  const pythonCmd = await getPythonCommand();
-  return new Promise((resolve, reject) => {
-    const python = spawn(pythonCmd, [scriptPath, caption, filePath]);
-    let stdout = '';
-    let stderr = '';
-    python.stdout.on('data', (d) => stdout += d.toString());
-    python.stderr.on('data', (d) => stderr += d.toString());
-    python.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`Context Error ${code}: ${stderr}`));
-      try {
-        const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-        if (jsonMatch) resolve(JSON.parse(jsonMatch[0]));
-        else reject(new Error('Invalid Context output'));
-      } catch (e) { reject(e); }
-    });
-    setTimeout(() => { python.kill(); reject(new Error('Context Timeout')); }, 60000);
-  });
-}
-
-async function updateProfileTrustScore(userId: string) {
-  try {
-    // Fetch profile for account age
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('created_at')
-      .eq('id', userId)
-      .single();
-
-    // Fetch verification counts
-    const [{ count: total }, { count: real }] = await Promise.all([
-      supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId),
-      supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId).in('final_verdict', ['REAL', 'APPROVED'])
-    ]);
-
-    const totalUploads = total || 0;
-    const verifiedUploads = real || 0;
-    const rejectedUploads = totalUploads - verifiedUploads;
-    const realPercentage = totalUploads > 0 ? Math.round((verifiedUploads / totalUploads) * 100) : 100;
-    const fakePercentage = totalUploads > 0 ? Math.round((rejectedUploads / totalUploads) * 100) : 0;
-
-    // COMPONENT 1: Verification Rate (0-40 points)
-    const verificationRate = totalUploads > 0 ? (verifiedUploads / totalUploads) : 0.5;
-    const verificationScore = Math.round(verificationRate * 40);
-
-    // COMPONENT 2: Account Age (0-20 points) — maxes at 90 days
-    const accountAgeDays = profile?.created_at
-      ? (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 86400)
-      : 0;
-    const ageScore = Math.min(20, Math.round((accountAgeDays / 90) * 20));
-
-    // COMPONENT 3: Activity Volume (0-20 points) — maxes at 50 uploads
-    const volumeScore = Math.min(20, Math.round((totalUploads / 50) * 20));
-
-    // COMPONENT 4: Community Reputation (0-20 points)
-    const { count: followers } = await supabase
-      .from('follows')
-      .select('*', { count: 'exact', head: true })
-      .eq('following_id', userId);
-    const followerScore = Math.min(10, Math.round(((followers || 0) / 100) * 10));
-
-    const { data: userPosts } = await supabase
-      .from('posts')
-      .select('like_count')
-      .eq('user_id', userId);
-    const totalLikeCount = userPosts?.reduce((sum: number, p: any) => sum + (p.like_count || 0), 0) || 0;
-    const engagementScore = Math.min(10, Math.round((totalLikeCount / 500) * 10));
-    const communityScore = followerScore + engagementScore;
-
-    // FINAL TRUST SCORE (0-100)
-    const trustScore = Math.min(100, verificationScore + ageScore + volumeScore + communityScore);
-
-    // Derive status from score
-    let status = 'TRUSTED';
-    if (totalUploads === 0) status = 'NEW_USER';
-    else if (trustScore < 25) status = 'UNDER_REVIEW';
-    else if (trustScore < 50) status = 'AT_RISK';
-
-    await supabase.from('profiles').update({
-      trust_status: status,
-      trust_score: trustScore,
-      trust_score_updated_at: new Date().toISOString(),
-      real_percentage: realPercentage,
-      fake_percentage: fakePercentage,
-      total_attempts: totalUploads,
-      real_count: verifiedUploads,
-      fake_count: rejectedUploads
-    }).eq('id', userId);
-
-    // Insert trust score history snapshot
-    await supabase.from('trust_score_history').insert({
-      user_id: userId,
-      trust_score: trustScore
-    });
-
-    console.log(`[TRUST-CACHE] User ${userId}: ${status} (Score: ${trustScore}, ${realPercentage}% Real)`);
-  } catch (e) { console.warn(`[TRUST-CACHE] Failed for ${userId}`, e); }
+  return runAIScript(scriptPath, [caption, filePath], 60000);
 }
 
 async function logVerification(
@@ -548,42 +442,3 @@ async function generateContentProof(postId: string, mediaHash: string, userId: s
   }
 }
 
-async function trackDeepfakeAlert(mediaHash: string, reason: string) {
-  try {
-    // Check if this hash was already flagged
-    const { data: existing } = await supabase
-      .from('deepfake_alerts')
-      .select('id, detection_count')
-      .eq('media_hash', mediaHash)
-      .single();
-
-    if (existing) {
-      await supabase.from('deepfake_alerts')
-        .update({
-          detection_count: existing.detection_count + 1,
-          severity: existing.detection_count >= 5 ? 'CRITICAL' : existing.detection_count >= 3 ? 'HIGH' : 'MEDIUM',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existing.id);
-    } else {
-      await supabase.from('deepfake_alerts').insert({
-        title: 'Deepfake Content Detected',
-        description: reason,
-        media_hash: mediaHash,
-        severity: 'LOW'
-      });
-    }
-  } catch (e) {
-    console.warn('[ALERT] Deepfake alert tracking failed:', e);
-  }
-}
-
-async function getPythonCommand(): Promise<string> {
-  if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH;
-  const { execSync } = await import('child_process');
-  try { execSync('python3 --version', { stdio: 'ignore' }); return 'python3'; }
-  catch (e) {
-    try { execSync('python --version', { stdio: 'ignore' }); return 'python'; }
-    catch (e2) { throw new Error('Python not found'); }
-  }
-}
