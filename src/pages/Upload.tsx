@@ -166,10 +166,10 @@ export default function Upload() {
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-6">
-      <div className="max-w-xl mx-auto p-6">
+      <div className="max-w-xl mx-auto p-4 sm:p-6">
 
         {/* Header Section */}
-        <div className="mb-10 text-center space-y-2">
+        <div className="mb-6 sm:mb-10 text-center space-y-2">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -178,7 +178,7 @@ export default function Upload() {
             <ShieldCheck className="w-4 h-4" />
             <span className="text-xs font-bold uppercase tracking-wider">Synchronous Truth Verification</span>
           </motion.div>
-          <h1 className="text-4xl font-black tracking-tight text-foreground">
+          <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-foreground">
             Publish Reality
           </h1>
           <p className="text-muted-foreground">
@@ -465,7 +465,7 @@ export default function Upload() {
         </div>
 
         {/* Global Principles (Always Visible) */}
-        <div className="mt-12 grid grid-cols-2 gap-4">
+        <div className="mt-8 sm:mt-12 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-muted/30 p-4 rounded-2xl space-y-2">
             <Lock className="w-5 h-5 text-muted-foreground" />
             <p className="text-xs font-bold uppercase text-muted-foreground">Fail-Closed Policy</p>

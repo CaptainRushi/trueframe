@@ -7,6 +7,7 @@ import { AuthenticityLabel } from "@/components/ui/AuthenticityLabel";
 import { supabase } from "@/lib/supabase";
 import { TransparencyPanel } from "@/components/transparency/TransparencyPanel";
 import { FlagModal } from "@/components/community/FlagModal";
+import { CommentSection } from "@/components/feed/CommentSection";
 
 import { ShareModal } from "@/components/share/ShareModal";
 import { BACKEND_URL } from "@/lib/api";
@@ -56,6 +57,7 @@ export function PostCard({
   const [showShareModal, setShowShareModal] = useState(false);
   const [showTransparency, setShowTransparency] = useState(false);
   const [showFlagModal, setShowFlagModal] = useState(false);
+  const [showComments, setShowComments] = useState(false);
 
   useEffect(() => {
     checkLikeStatus();
@@ -255,7 +257,10 @@ export function PostCard({
               />
               <span className="text-sm font-medium">{likeCount.toLocaleString()}</span>
             </motion.button>
-            <button className="flex items-center gap-1">
+            <button
+              onClick={() => setShowComments(true)}
+              className="flex items-center gap-1 hover:text-primary transition-colors"
+            >
               <MessageCircle className="w-6 h-6 text-foreground" />
               <span className="text-sm font-medium">{commentCount}</span>
             </button>
@@ -303,6 +308,12 @@ export function PostCard({
         postId={id}
         isOpen={showFlagModal}
         onClose={() => setShowFlagModal(false)}
+      />
+      <CommentSection
+        postId={id}
+        isOpen={showComments}
+        onClose={() => setShowComments(false)}
+        onCommentAdded={() => setCommentCount(prev => prev + 1)}
       />
     </motion.article>
   );

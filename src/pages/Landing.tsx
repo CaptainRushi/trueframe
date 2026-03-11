@@ -102,7 +102,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen gradient-hero overflow-hidden">
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
         <motion.header
           initial={{ opacity: 0, y: -20 }}
@@ -122,14 +122,14 @@ export default function Landing() {
         </motion.header>
 
         {/* Hero */}
-        <main className="mt-12 lg:mt-20 grid lg:grid-cols-2 gap-12 items-center">
+        <main className="mt-8 sm:mt-12 lg:mt-20 grid lg:grid-cols-2 gap-8 sm:gap-12 items-center">
           <motion.div
             initial={{ opacity: 0, x: -40 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
             className="space-y-8"
           >
-            <h1 className="text-5xl lg:text-6xl font-bold text-primary-foreground leading-tight">
+            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-bold text-primary-foreground leading-tight">
               Join the{" "}
               <span className="relative">
                 Authentic
@@ -142,7 +142,7 @@ export default function Landing() {
               </span>{" "}
               Social Network
             </h1>
-            <p className="text-xl text-primary-foreground/80 max-w-md">
+            <p className="text-base sm:text-xl text-primary-foreground/80 max-w-md">
               Every photo and video verified real. No deepfakes, no manipulation, just truth.
             </p>
 
@@ -222,10 +222,10 @@ export default function Landing() {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.9 }}
-          className="mt-20 grid grid-cols-2 lg:grid-cols-3 gap-6 max-w-2xl mx-auto"
+          className="mt-12 sm:mt-20 grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-2xl mx-auto"
         >
           <div className="text-center">
-            <p className="text-3xl lg:text-4xl font-bold text-primary-foreground">{stats.verifiedPosts.toLocaleString()}</p>
+            <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-primary-foreground">{stats.verifiedPosts.toLocaleString()}</p>
             <p className="text-sm text-primary-foreground/70">Verified Posts</p>
           </div>
           <div className="text-center hidden lg:block">
@@ -243,9 +243,9 @@ export default function Landing() {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.1 }}
-          className="mt-24 mb-20 max-w-4xl mx-auto"
+          className="mt-16 sm:mt-24 mb-12 sm:mb-20 max-w-4xl mx-auto"
         >
-          <h2 className="text-3xl lg:text-4xl font-bold text-primary-foreground text-center mb-4">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-primary-foreground text-center mb-4">
             Advanced Platform Features
           </h2>
           <p className="text-center text-primary-foreground/70 mb-12 max-w-xl mx-auto">
