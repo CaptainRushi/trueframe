@@ -108,7 +108,7 @@ export default function CreatorProgram() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-20 md:pb-6">
       <div className="max-w-2xl mx-auto p-6">
         {/* Header */}
         <div className="text-center mb-8">

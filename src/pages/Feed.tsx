@@ -40,7 +40,7 @@ export default function Feed() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-20 md:pb-6">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
@@ -68,7 +68,7 @@ export default function Feed() {
             <p className="text-muted-foreground animate-pulse">Computing Truth Feed...</p>
           </div>
         ) : posts.length > 0 ? (
-          <section className="space-y-6 px-4 pb-20">
+          <section className="space-y-6 px-4 pb-20 md:pb-6">
             {posts.map((post, index) => (
               <motion.div
                 key={post.id}
