@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AuthenticityTimeline } from "@/components/profile/AuthenticityTimeline";
-import { Award } from "lucide-react";
+import { Award, Send } from "lucide-react";
 
 import { BACKEND_URL } from "@/lib/api";
 
@@ -405,18 +405,18 @@ export default function Profile() {
   const statusConfig = getStatusConfig(profile.status);
 
   return (
-    <div className="max-w-4xl mx-auto pb-20 md:pb-6 p-4">
+    <div className="max-w-4xl mx-auto pb-20 md:pb-6 px-3 sm:px-4">
 
       {/* 1. USER IDENTITY SECTION (TOP) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative bg-card rounded-3xl border border-border p-8 mb-8 overflow-hidden"
+        className="relative bg-card rounded-3xl border border-border p-4 sm:p-8 mb-6 sm:mb-8 overflow-hidden"
       >
         <div className="flex flex-col md:flex-row items-center gap-8 z-10 relative">
           {/* Avatar */}
           <div className="relative group">
-            <div className="w-32 h-32 rounded-full border-4 border-background shadow-xl overflow-hidden bg-muted">
+            <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-background shadow-xl overflow-hidden bg-muted">
               {profile.avatarUrl ? (
                 <img src={profile.avatarUrl} alt={profile.username} loading="lazy" className="w-full h-full object-cover" />
               ) : (
@@ -470,7 +470,7 @@ export default function Profile() {
             ) : (
               <>
                 <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
-                  <h1 className="text-3xl font-bold">{profile.displayName || profile.username}</h1>
+                  <h1 className="text-2xl sm:text-3xl font-bold">{profile.displayName || profile.username}</h1>
                   {(profile as any).is_verified_creator && (
                     <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 rounded-full border border-primary/20">
                       <Award className="w-4 h-4 text-primary" />
@@ -498,7 +498,7 @@ export default function Profile() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-3 mb-6">
+                <div className="flex gap-2 sm:gap-3 mb-6 flex-wrap">
                   {!isOwner && (
                     <button
                       onClick={handleFollowToggle}
@@ -559,7 +559,7 @@ export default function Profile() {
           </div>
 
           {/* 2. TRUST STATUS SUMMARY — Numeric Score + Breakdown */}
-          <div className="w-full md:w-72 bg-background/50 rounded-2xl p-5 border border-border">
+          <div className="w-full md:w-72 bg-background/50 rounded-2xl p-4 sm:p-5 border border-border">
             {/* Circular Trust Score */}
             <div className="flex items-center gap-4 mb-4">
               <div className="relative w-20 h-20 flex-shrink-0">
@@ -641,10 +641,10 @@ export default function Profile() {
       </motion.div>
 
       {/* 4. UPLOAD VERIFICATION STATUS SECTION */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
         <div className="bg-card p-4 rounded-2xl border border-border text-center">
-          <h4 className="text-muted-foreground text-xs font-semibold uppercase mb-1">Total</h4>
-          <p className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
+          <h4 className="text-muted-foreground text-[10px] sm:text-xs font-semibold uppercase mb-1">Total</h4>
+          <p className="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
             {profile.totalUploads}
           </p>
         </div>
@@ -696,7 +696,7 @@ export default function Profile() {
           transition={{ duration: 0.2 }}
         >
           {activeTab === 'posts' && (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-1 sm:gap-4">
               {profile.posts.length > 0 ? (
                 profile.posts.map((post) => (
                   <div
@@ -733,7 +733,7 @@ export default function Profile() {
             </div>
           )}
           {activeTab === 'reels' && (
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-1 sm:gap-4">
               {profile.reels.length > 0 ? (
                 profile.reels.map((reel) => (
                   <div
@@ -1016,13 +1016,9 @@ export default function Profile() {
                     <p className="text-muted-foreground italic text-sm">No caption</p>
                   )}
 
-                  {/* Placeholder for comments */}
+                  {/* Comments */}
                   <div className="pt-4 border-t border-border/50">
-                    <p className="text-xs text-muted-foreground font-medium mb-2">Comments are verified</p>
-                    <div className="space-y-3">
-                      <div className="h-2 w-3/4 bg-muted animate-pulse rounded"></div>
-                      <div className="h-2 w-1/2 bg-muted animate-pulse rounded"></div>
-                    </div>
+                    <LightboxComments postId={selectedPost.id} />
                   </div>
                 </div>
 
@@ -1041,14 +1037,7 @@ export default function Profile() {
                       {new Date(selectedPost.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Add a verified comment..."
-                      className="w-full px-4 py-2 bg-muted/50 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                      readOnly
-                    />
-                  </div>
+                  <LightboxCommentInput postId={selectedPost.id} />
                 </div>
               </div>
             </motion.div>
@@ -1056,5 +1045,120 @@ export default function Profile() {
         )}
       </AnimatePresence>
     </div >
+  );
+}
+
+function LightboxComments({ postId }: { postId: string }) {
+  const [comments, setComments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchComments = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/social/comments/${postId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setComments(data.comments || []);
+        }
+      } catch (e) {
+        console.error("Failed to fetch comments", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchComments();
+  }, [postId]);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <div className="h-2 w-3/4 bg-muted animate-pulse rounded" />
+        <div className="h-2 w-1/2 bg-muted animate-pulse rounded" />
+      </div>
+    );
+  }
+
+  if (comments.length === 0) {
+    return <p className="text-xs text-muted-foreground">No comments yet — be the first</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground font-medium">{comments.length} comment{comments.length !== 1 ? "s" : ""}</p>
+      {comments.map((c: any) => (
+        <div key={c.id} className="flex gap-2">
+          <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-[10px] flex-shrink-0">
+            {(c.profiles?.username?.[0] || "?").toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs">
+              <span className="font-semibold">{c.profiles?.display_name || c.profiles?.username || "User"}</span>{" "}
+              <span className="text-foreground/80">{c.content}</span>
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {new Date(c.created_at).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LightboxCommentInput({ postId }: { postId: string }) {
+  const [text, setText] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  const handlePost = async () => {
+    if (!text.trim() || posting) return;
+    setPosting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert("Please log in to comment");
+        return;
+      }
+      const res = await fetch(`${BACKEND_URL}/api/social/comment/${postId}`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content: text.trim() }),
+      });
+      if (res.ok) {
+        setText("");
+        // Refresh page to update comments
+        window.location.reload();
+      } else {
+        const data = await res.json();
+        alert(data.error || data.reason || "Failed to post comment");
+      }
+    } catch (e: any) {
+      alert(e.message || "Failed to post comment");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handlePost()}
+        placeholder="Add a verified comment..."
+        className="flex-1 px-4 py-2 bg-muted/50 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+        disabled={posting}
+      />
+      <button
+        onClick={handlePost}
+        disabled={!text.trim() || posting}
+        className="p-2 bg-primary text-primary-foreground rounded-full disabled:opacity-40 hover:opacity-90 transition-all flex-shrink-0"
+      >
+        {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+      </button>
+    </div>
   );
 }

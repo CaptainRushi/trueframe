@@ -181,11 +181,11 @@ export default function Dashboard() {
 
     return (
         <div className="min-h-screen bg-background pb-20 md:pb-6">
-            <div className="max-w-4xl mx-auto p-6 md:p-8">
+            <div className="max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
                 {/* Header */}
                 <header className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div>
-                        <h1 className="text-4xl font-black tracking-tight mb-2">My Trust Dashboard</h1>
+                        <h1 className="text-2xl sm:text-4xl font-black tracking-tight mb-2">My Trust Dashboard</h1>
                         <p className="text-muted-foreground uppercase text-xs font-bold tracking-widest">
                             Real-time verification metrics & historical logs
                         </p>
@@ -214,7 +214,7 @@ export default function Dashboard() {
                 )}
 
                 {/* Main Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-10">
                     {/* Trust Score Card — replaces old Integrity Score */}
                     <motion.div
                         whileHover={{ y: -4 }}
@@ -324,12 +324,12 @@ export default function Dashboard() {
 
                 {/* Trust Score Trend Chart */}
                 {trend.length > 1 && (
-                    <section className="bg-card rounded-[2rem] border border-border p-8 mb-10">
+                    <section className="bg-card rounded-[2rem] border border-border p-4 sm:p-8 mb-8 sm:mb-10">
                         <h3 className="text-xl font-black mb-6 flex items-center gap-2">
                             <TrendingUp className="w-5 h-5 text-primary" />
                             Trust Score Over Time
                         </h3>
-                        <div className="h-64 w-full">
+                        <div className="h-48 sm:h-64 w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={trend} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
                                     <defs>
@@ -379,7 +379,7 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                     {/* Distribution Chart / Visualization Area */}
                     <div className="lg:col-span-3 space-y-8">
-                        <section className="bg-card rounded-[2rem] border border-border p-8">
+                        <section className="bg-card rounded-[2rem] border border-border p-4 sm:p-8">
                             <h3 className="text-xl font-black mb-6 flex items-center gap-2">
                                 <BarChart3 className="w-5 h-5 text-primary" />
                                 Content Authenticity
@@ -415,7 +415,7 @@ export default function Dashboard() {
                                 </div>
                             </div>
 
-                            <div className="mt-8 pt-8 border-t border-border grid grid-cols-3 gap-4">
+                            <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-border grid grid-cols-3 gap-2 sm:gap-4">
                                 <div className="text-center p-4 bg-muted/30 rounded-2xl">
                                     <p className="text-2xl font-black">{stats?.totalUploads}</p>
                                     <p className="text-[10px] font-bold uppercase text-muted-foreground">Attempts</p>
