@@ -405,7 +405,7 @@ export default function Profile() {
   const statusConfig = getStatusConfig(profile.status);
 
   return (
-    <div className="max-w-4xl mx-auto pb-20 p-4">
+    <div className="max-w-4xl mx-auto pb-20 md:pb-6 p-4">
 
       {/* 1. USER IDENTITY SECTION (TOP) */}
       <motion.div

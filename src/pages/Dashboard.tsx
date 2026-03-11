@@ -180,7 +180,7 @@ export default function Dashboard() {
     const statusConfig = stats ? getStatusConfig(stats.status) : getStatusConfig("NEW_USER");
 
     return (
-        <div className="min-h-screen bg-background pb-20">
+        <div className="min-h-screen bg-background pb-20 md:pb-6">
             <div className="max-w-4xl mx-auto p-6 md:p-8">
                 {/* Header */}
                 <header className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">

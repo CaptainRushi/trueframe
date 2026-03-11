@@ -103,7 +103,7 @@ export default function Explore() {
   const isSearching = debouncedQuery.length >= 2;
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-background pb-20 md:pb-6">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4">
         <div className="max-w-2xl mx-auto space-y-4">

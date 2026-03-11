@@ -127,7 +127,7 @@ export default function Notifications() {
   const earlierNotifications = notifications.filter(n => new Date(n.created_at).toDateString() !== today);
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-24 md:pb-6">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border p-4">
         <div className="max-w-lg mx-auto">
