@@ -51,8 +51,8 @@ export async function transparencyRoutes(fastify: FastifyInstance) {
                 ? Math.round(((scoreBreakdown.artifact_score || 0)) * 100)
                 : 0;
 
-            // Fetch content proof and flags in parallel
-            const [proofRes, flagCountRes, confirmedFlagsRes] = await Promise.all([
+            // Fetch content proof, flags, and secondary review in parallel
+            const [proofRes, flagCountRes, confirmedFlagsRes, secondaryReviewRes] = await Promise.all([
                 supabase
                     .from('content_proofs')
                     .select('*')
@@ -66,12 +66,18 @@ export async function transparencyRoutes(fastify: FastifyInstance) {
                     .from('community_flags')
                     .select('*', { count: 'exact', head: true })
                     .eq('post_id', postId)
-                    .eq('status', 'CONFIRMED')
+                    .eq('status', 'CONFIRMED'),
+                supabase
+                    .from('secondary_reviews')
+                    .select('status, decision, secondary_score, created_at, completed_at, manual_decision, signals')
+                    .eq('post_id', postId)
+                    .maybeSingle()
             ]);
 
             const proof = proofRes.data;
             const flagCount = flagCountRes.count;
             const confirmedFlags = confirmedFlagsRes.count;
+            const secondaryReview = secondaryReviewRes.data;
 
             return {
                 postId: post.id,
@@ -102,7 +108,15 @@ export async function transparencyRoutes(fastify: FastifyInstance) {
                 communityFlags: {
                     total: flagCount || 0,
                     confirmed: confirmedFlags || 0
-                }
+                },
+                secondaryReview: secondaryReview ? {
+                    status: secondaryReview.status,
+                    decision: secondaryReview.decision || secondaryReview.manual_decision || null,
+                    secondaryScore: secondaryReview.secondary_score,
+                    signals: secondaryReview.signals || [],
+                    triggeredAt: secondaryReview.created_at,
+                    completedAt: secondaryReview.completed_at
+                } : null
             };
         } catch (error: any) {
             fastify.log.error(error);

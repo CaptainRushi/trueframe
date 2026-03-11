@@ -1,11 +1,27 @@
+# ===== TrueFrame AI Service Dependencies =====
+
+# Core
 numpy
 opencv-python
 scipy
-onnxruntime
 Pillow
 requests
 tenacity
+
+# Deep Learning
 torch
+torchvision
 transformers
-scikit-image
+onnxruntime
+
+# Face Detection
 mediapipe
+scikit-image
+
+# Training Pipeline
+albumentations>=1.3.0
+scikit-learn>=1.2.0
+
+# Logging & Visualization (optional)
+# tensorboard
+# matplotlib

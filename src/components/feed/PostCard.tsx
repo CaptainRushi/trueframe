@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Trash2, Eye, Flag } from "lucide-react";
+import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Trash2, Eye, Flag, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
@@ -25,6 +25,7 @@ interface PostCardProps {
   authenticityLabel?: string;
   authorTrustScore?: number;
   authorTrustStatus?: string;
+  visibility?: string;
   onDelete?: (postId: string) => void;
 }
 
@@ -42,6 +43,7 @@ export function PostCard({
   authenticityLabel = "VERIFIED_REAL",
   authorTrustScore = 50,
   authorTrustStatus = "NEW_USER",
+  visibility = "PUBLIC",
   onDelete,
 }: PostCardProps) {
   const [isLiked, setIsLiked] = useState(false);
@@ -185,6 +187,9 @@ export function PostCard({
               size="sm"
               showScore={false}
             />
+            {visibility === 'UNDER_REVIEW' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse" title="Under Review" />
+            )}
           </div>
         </div>
         {isOwner && (
@@ -219,9 +224,18 @@ export function PostCard({
           loading="lazy"
           className="w-full h-full object-cover"
         />
-        {isVerified && (
+        {isVerified && visibility !== 'UNDER_REVIEW' && (
           <div className="absolute top-3 right-3">
             <AuthenticityLabel label={authenticityLabel} />
+          </div>
+        )}
+        {visibility === 'UNDER_REVIEW' && (
+          <div className="absolute inset-0 bg-yellow-500/15 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2">
+            <AlertTriangle className="w-10 h-10 text-yellow-400" />
+            <p className="text-yellow-400 font-bold text-sm">Under Community Review</p>
+            <p className="text-yellow-400/70 text-xs text-center px-8">
+              This content has been reported and is under secondary AI review.
+            </p>
           </div>
         )}
       </div>
@@ -245,7 +259,7 @@ export function PostCard({
               <MessageCircle className="w-6 h-6 text-foreground" />
               <span className="text-sm font-medium">{commentCount}</span>
             </button>
-            <button onClick={handleShare} disabled={!isVerified} className={!isVerified ? "opacity-30 cursor-not-allowed" : ""}>
+            <button onClick={handleShare} disabled={!isVerified || visibility === 'UNDER_REVIEW'} className={(!isVerified || visibility === 'UNDER_REVIEW') ? "opacity-30 cursor-not-allowed" : ""}>
               <Send className="w-6 h-6 text-foreground" />
             </button>
           </div>

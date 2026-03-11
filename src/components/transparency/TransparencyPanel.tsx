@@ -49,6 +49,14 @@ interface TransparencyData {
     total: number;
     confirmed: number;
   };
+  secondaryReview: {
+    status: string;
+    decision: string | null;
+    secondaryScore: number | null;
+    signals: string[];
+    triggeredAt: string;
+    completedAt: string | null;
+  } | null;
 }
 
 export function TransparencyPanel({ postId, isOpen, onClose }: TransparencyPanelProps) {
@@ -256,6 +264,72 @@ export function TransparencyPanel({ postId, isOpen, onClose }: TransparencyPanel
                         {data.communityFlags.total} flag(s), {data.communityFlags.confirmed} confirmed
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {/* Secondary AI Review */}
+                {data.secondaryReview && (
+                  <div className={`rounded-2xl p-4 border space-y-3 ${
+                    data.secondaryReview.status === 'PROCESSING' || data.secondaryReview.status === 'PENDING'
+                      ? 'bg-yellow-500/5 border-yellow-500/20'
+                      : data.secondaryReview.decision === 'RESTORE'
+                        ? 'bg-green-500/5 border-green-500/20'
+                        : data.secondaryReview.decision === 'REMOVE'
+                          ? 'bg-red-500/5 border-red-500/20'
+                          : 'bg-yellow-500/5 border-yellow-500/20'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-primary" />
+                      <p className="text-xs font-bold uppercase tracking-widest">Secondary AI Review</p>
+                    </div>
+
+                    {(data.secondaryReview.status === 'PENDING' || data.secondaryReview.status === 'PROCESSING') && (
+                      <div className="flex items-center gap-3">
+                        <div className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-yellow-400">Secondary AI analysis in progress...</p>
+                      </div>
+                    )}
+
+                    {data.secondaryReview.status === 'COMPLETED' && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">Secondary Score</span>
+                          <span className={`text-sm font-bold ${
+                            (data.secondaryReview.secondaryScore || 0) < 0.6 ? 'text-green-500' :
+                            (data.secondaryReview.secondaryScore || 0) < 0.8 ? 'text-yellow-500' : 'text-red-500'
+                          }`}>
+                            {Math.round((data.secondaryReview.secondaryScore || 0) * 100)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">Decision</span>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            data.secondaryReview.decision === 'RESTORE' ? 'bg-green-500/10 text-green-500' :
+                            data.secondaryReview.decision === 'MANUAL_REVIEW' ? 'bg-yellow-500/10 text-yellow-500' :
+                            'bg-red-500/10 text-red-500'
+                          }`}>
+                            {data.secondaryReview.decision === 'RESTORE' ? 'Verified Authentic' :
+                             data.secondaryReview.decision === 'MANUAL_REVIEW' ? 'Pending Manual Review' :
+                             data.secondaryReview.decision === 'REMOVE' ? 'Confirmed Deepfake' :
+                             data.secondaryReview.decision || 'Unknown'}
+                          </span>
+                        </div>
+                        {data.secondaryReview.completedAt && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-muted-foreground">Reviewed At</span>
+                            <span className="text-xs font-medium">
+                              {new Date(data.secondaryReview.completedAt).toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {data.secondaryReview.status === 'FAILED' && (
+                      <p className="text-xs text-yellow-400">
+                        Review could not be completed — post remains under review.
+                      </p>
+                    )}
                   </div>
                 )}
 

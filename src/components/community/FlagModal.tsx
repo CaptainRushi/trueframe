@@ -44,7 +44,10 @@ export function FlagModal({ postId, isOpen, onClose }: FlagModalProps) {
 
       const data = await res.json();
       if (res.ok) {
-        setResult({ success: true, message: 'Flag submitted successfully. Community verifiers will review this content.' });
+        const reviewMsg = data.reviewTriggered
+          ? 'Your flag triggered an automatic secondary AI review of this content.'
+          : 'Community verifiers will review this content.';
+        setResult({ success: true, message: `Flag submitted successfully. ${reviewMsg}` });
       } else {
         setResult({ success: false, message: data.error || data.message || 'Failed to submit flag' });
       }

@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS profiles (
     is_verified_creator BOOLEAN DEFAULT FALSE,
     verified_creator_at TIMESTAMP WITH TIME ZONE,
     is_community_verifier BOOLEAN DEFAULT FALSE,
-    identity_verified BOOLEAN DEFAULT FALSE
+    identity_verified BOOLEAN DEFAULT FALSE,
+    identity_verified_at TIMESTAMP WITH TIME ZONE,
+    identity_verification_method VARCHAR(30)
 );
 
 COMMENT ON COLUMN profiles.fake_percentage IS 'Cached percentage of rejected uploads';
@@ -86,6 +88,26 @@ CREATE TABLE IF NOT EXISTS posts (
     authenticity_label VARCHAR(50) DEFAULT 'VERIFIED_REAL',
     upload_source VARCHAR(20) DEFAULT 'GALLERY',
     content_hash_proof VARCHAR(128)
+);
+
+-- Identity Verifications (Selfie Verification System)
+CREATE TABLE IF NOT EXISTS identity_verifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'PENDING_REVIEW', 'FAILED')),
+    verdict VARCHAR(20) CHECK (verdict IN ('VERIFIED', 'REVIEW', 'REJECTED', 'ERROR')),
+    final_score FLOAT,
+    liveness_score FLOAT,
+    spoof_score FLOAT,
+    ai_face_score FLOAT,
+    deepfake_score FLOAT,
+    signals TEXT[],
+    reason TEXT,
+    processing_ms INTEGER,
+    device_metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    reviewed_by UUID REFERENCES profiles(id)
 );
 
 -- ==========================================
@@ -231,6 +253,10 @@ CREATE INDEX IF NOT EXISTS idx_community_flags_status ON community_flags(status)
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, is_read) WHERE is_read = FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_identity_verifications_user ON identity_verifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_identity_verifications_status ON identity_verifications(status);
+CREATE INDEX IF NOT EXISTS idx_identity_verifications_created ON identity_verifications(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_content_proofs_post ON content_proofs(post_id);
 CREATE INDEX IF NOT EXISTS idx_content_proofs_chain ON content_proofs(proof_chain_index);

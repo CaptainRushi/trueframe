@@ -14,6 +14,8 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import PostPage from "./pages/PostPage";
 import CreatorProgram from "./pages/CreatorProgram";
+import VerifyIdentity from "./pages/VerifyIdentity";
+import Moderation from "./pages/Moderation";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import { useAutoReload } from "./hooks/useAutoReload";
@@ -41,6 +43,8 @@ const App = () => {
                 <Route path="/profile/:username?" element={<Profile />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/creator" element={<CreatorProgram />} />
+                <Route path="/verify" element={<VerifyIdentity />} />
+                <Route path="/moderation" element={<Moderation />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />

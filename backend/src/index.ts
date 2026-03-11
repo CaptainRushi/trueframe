@@ -13,6 +13,8 @@ import { transparencyRoutes } from './routes/transparency.js';
 import { communityRoutes } from './routes/community.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { creatorRoutes } from './routes/creator.js';
+import { verificationRoutes } from './routes/verification.js';
+import { moderationRoutes } from './routes/moderation.js';
 
 dotenv.config();
 
@@ -51,6 +53,8 @@ server.register(transparencyRoutes, { prefix: '/api/transparency' });
 server.register(communityRoutes, { prefix: '/api/community' });
 server.register(notificationRoutes, { prefix: '/api/notifications' });
 server.register(creatorRoutes, { prefix: '/api/creator' });
+server.register(verificationRoutes, { prefix: '/api/verification' });
+server.register(moderationRoutes, { prefix: '/api/moderation' });
 
 // Health Check & Root
 server.get('/', async () => {
