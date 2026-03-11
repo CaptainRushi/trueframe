@@ -70,6 +70,8 @@ server.get('/health', async (request, reply) => {
   return { status: 'ok', service: 'verified-stream-backend' };
 });
 
+export const app = server;
+
 const start = async () => {
   try {
     const port = process.env.PORT ? parseInt(process.env.PORT) : 3001;
@@ -82,4 +84,7 @@ const start = async () => {
   }
 };
 
-start();
+// Don't auto-start if in Vercel. Vercel will import this and handle it via serverless functions.
+if (!process.env.VERCEL) {
+  start();
+}
