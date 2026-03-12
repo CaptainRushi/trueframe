@@ -105,7 +105,7 @@ export default function Explore() {
     <div className="min-h-screen bg-background pb-20 md:pb-6">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4">
-        <div className="max-w-2xl mx-auto space-y-4">
+        <div className="w-full space-y-4 px-2">
           <div className="flex items-center gap-2 mb-2">
             {!isSearching ? <TrendingUp className="w-5 h-5 text-primary" /> : <Search className="w-5 h-5 text-primary" />}
             <h1 className="text-xl font-bold tracking-tight">
@@ -153,7 +153,7 @@ export default function Explore() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto p-4">
+      <main className="w-full p-4">
         {/* EXPLORE FEED */}
         {!isSearching && (
           <>
