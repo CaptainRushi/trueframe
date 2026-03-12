@@ -11,7 +11,11 @@ except ImportError:
 class FaceAnalyzer:
     def __init__(self):
         if _HAS_MEDIAPIPE:
-            self.mp_face = mp.solutions.face_detection
+            try:
+                import mediapipe.python.solutions as mp_solutions
+                self.mp_face = mp_solutions.face_detection
+            except ImportError:
+                self.mp_face = mp.solutions.face_detection
             self.detector = self.mp_face.FaceDetection(
                 model_selection=0,
                 min_detection_confidence=0.5
