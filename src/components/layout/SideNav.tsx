@@ -1,7 +1,6 @@
 import { Home, Search, PlusSquare, Bell, User, ShieldCheck } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/api";
 
@@ -13,17 +12,11 @@ const navItems = [
   { icon: User, label: "Profile", path: "/profile" },
 ];
 
-export function SideNav() {
+export const SideNav = memo(function SideNav() {
   const location = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchUnreadCount = async () => {
+  const fetchUnreadCount = useCallback(async () => {
     try {
       if (!supabase) return;
       const { data: { session } } = await supabase.auth.getSession();
@@ -39,7 +32,14 @@ export function SideNav() {
     } catch (e) {
       // Silently fail
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    // Reduced polling: 60s instead of 30s
+    const interval = setInterval(fetchUnreadCount, 60000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
 
   return (
     <nav className="w-64 h-full glass border-r border-border p-6 flex flex-col pt-10">
@@ -81,17 +81,12 @@ export function SideNav() {
               </span>
               
               {isActive && (
-                <motion.div
-                  layoutId="activeSidebarTab"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 bg-primary rounded-r-full"
-                />
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 bg-primary rounded-r-full" />
               )}
             </Link>
           );
         })}
       </div>
-      
-      {/* Global Logout or settings could go here at the bottom */}
     </nav>
   );
-}
+});

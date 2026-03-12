@@ -219,3 +219,34 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Performance optimizations */
+/* Skip rendering off-screen post cards (huge win for long feeds) */
+article {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}
+
+/* GPU-accelerate the fixed sidebar and bottom nav */
+nav.glass {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Optimize image rendering */
+img {
+  image-rendering: auto;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Smoother scrolling on main content */
+main {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Reduce paint area for fixed elements */
+.fixed {
+  transform: translateZ(0);
+}

@@ -1,7 +1,6 @@
 import { Home, Search, PlusSquare, Bell, User } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/api";
 
@@ -13,17 +12,11 @@ const navItems = [
   { icon: User, label: "Profile", path: "/profile" },
 ];
 
-export function BottomNav() {
+export const BottomNav = memo(function BottomNav() {
   const location = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchUnreadCount = async () => {
+  const fetchUnreadCount = useCallback(async () => {
     try {
       if (!supabase) return;
       const { data: { session } } = await supabase.auth.getSession();
@@ -39,10 +32,17 @@ export function BottomNav() {
     } catch (e) {
       // Silently fail
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    // Reduced polling: 60s instead of 30s
+    const interval = setInterval(fetchUnreadCount, 60000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border safe-bottom">
+    <nav className="glass border-t border-border safe-bottom">
       <div className="flex items-center justify-around py-2 px-4 max-w-lg mx-auto">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -56,20 +56,12 @@ export function BottomNav() {
               className="relative flex flex-col items-center p-2"
             >
               {isUpload ? (
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="gradient-primary p-3 rounded-2xl shadow-glow"
-                >
+                <div className="gradient-primary p-3 rounded-2xl shadow-glow active:scale-95 transition-transform">
                   <item.icon className="w-6 h-6 text-primary-foreground" />
-                </motion.div>
+                </div>
               ) : (
                 <>
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="relative"
-                  >
+                  <div className="relative active:scale-95 transition-transform">
                     <item.icon
                       className={`w-6 h-6 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"
                         }`}
@@ -80,12 +72,9 @@ export function BottomNav() {
                         {unreadCount > 9 ? '9+' : unreadCount}
                       </span>
                     )}
-                  </motion.div>
+                  </div>
                   {isActive && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className="absolute -bottom-1 w-1 h-1 rounded-full bg-primary"
-                    />
+                    <div className="absolute -bottom-1 w-1 h-1 rounded-full bg-primary" />
                   )}
                 </>
               )}
@@ -95,4 +84,4 @@ export function BottomNav() {
       </div>
     </nav>
   );
-}
+});

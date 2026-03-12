@@ -136,7 +136,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'REJECTED', 1.0, 1.0, `Engine Error: ${e.message}`);
         await updateProfileTrustScore(userId);
         if (existsSync(tempPath)) unlinkSync(tempPath);
-        return reply.code(400).send({ verified: false, reason: 'Deepfake service error' });
+        return reply.code(400).send({ verified: false, reason: e.message || 'Deepfake service error' });
       }
 
       const modelScore = mediaResult.model_score ?? 0;
@@ -356,11 +356,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 }
 
 async function runAIVerification(scriptPath: string, filePath: string): Promise<any> {
-  return runAIScript(scriptPath, [filePath], 120000);
+  return runAIScript(scriptPath, [filePath], 300000); // 5 minutes (allows first run HF download)
 }
 
 async function runContextVerification(scriptPath: string, caption: string, filePath: string): Promise<any> {
-  return runAIScript(scriptPath, [caption, filePath], 60000);
+  return runAIScript(scriptPath, [caption, filePath], 120000); // 2 minutes
 }
 
 async function logVerification(

@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, TrendingUp, ShieldCheck, User, Grid, Play } from "lucide-react";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
-import { supabase } from "@/lib/supabase";
 import { Link } from "react-router-dom";
 
 import { BACKEND_URL } from "@/lib/api";
@@ -33,11 +32,11 @@ export default function Explore() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'posts' | 'users'>('posts');
 
-  // Debounce
+  // Debounce - reduced from 500ms to 350ms
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery);
-    }, 500);
+    }, 350);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
