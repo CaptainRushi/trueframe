@@ -47,7 +47,7 @@ export default function Feed() {
     <div className="min-h-screen bg-background pb-20 md:pb-6">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="w-full px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-primary" />
             <h1 className="text-xl font-black tracking-tight">Truth Feed</h1>
@@ -55,7 +55,7 @@ export default function Feed() {
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto py-4">
+      <main className="w-full py-4">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />

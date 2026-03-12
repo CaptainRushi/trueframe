@@ -42,7 +42,7 @@ export const SideNav = memo(function SideNav() {
   }, [fetchUnreadCount]);
 
   return (
-    <nav className="w-64 h-full glass border-r border-border p-6 flex flex-col pt-10">
+    <nav className="w-full h-full glass p-6 flex flex-col pt-10">
       {/* Brand logo */}
       <div className="flex items-center gap-3 mb-10 px-4">
         <ShieldCheck className="w-8 h-8 text-primary" />

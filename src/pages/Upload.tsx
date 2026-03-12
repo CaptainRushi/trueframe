@@ -166,7 +166,7 @@ export default function Upload() {
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-6">
-      <div className="max-w-xl mx-auto p-4 sm:p-6">
+      <div className="w-full p-4 sm:p-6 pt-8">
 
         {/* Header Section */}
         <div className="mb-6 sm:mb-10 text-center space-y-2">
