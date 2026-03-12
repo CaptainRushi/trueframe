@@ -2,7 +2,9 @@ import { spawn } from 'child_process';
 
 /**
  * Spawn a Python AI script and return parsed JSON output.
- * Fail-closed: rejects on non-zero exit, invalid JSON, or timeout.
+ * Fail-closed: rejects on timeout or if no valid JSON output is produced.
+ * Tries to parse JSON from stdout even on non-zero exit codes,
+ * since the AI scripts output valid fallback verdicts before exiting.
  */
 export async function runAIScript(
   scriptPath: string,
@@ -17,12 +19,19 @@ export async function runAIScript(
     python.stdout.on('data', (d) => stdout += d.toString());
     python.stderr.on('data', (d) => stderr += d.toString());
     python.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`AI Error ${code}: ${stderr}`));
+      // Always try to parse JSON from stdout first, regardless of exit code.
+      // The AI scripts output valid fallback verdicts (REJECTED) even on errors.
       try {
         const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-        if (jsonMatch) resolve(JSON.parse(jsonMatch[0]));
-        else reject(new Error('Invalid AI output'));
-      } catch (e) { reject(e); }
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return resolve(parsed);
+        }
+      } catch (e) {
+        // JSON parse failed, fall through to error
+      }
+      // Only reject if we couldn't extract valid JSON
+      reject(new Error(`AI Error (exit ${code}): ${stderr || 'No valid JSON output'}`));
     });
     setTimeout(() => { python.kill(); reject(new Error('AI Timeout')); }, timeoutMs);
   });

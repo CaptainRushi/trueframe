@@ -1,43 +1,47 @@
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Bell, MessageSquare, ShieldCheck, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ShieldCheck, Loader2 } from "lucide-react";
 import { PostCard } from "@/components/feed/PostCard";
-
+import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/api";
 
 export default function Feed() {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Get current user once for all PostCards
+    const getUser = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          setCurrentUserId(session.user.id);
+        }
+      } catch (e) {
+        // silently fail
+      }
+    };
+    getUser();
     fetchFeed();
   }, []);
 
-  const fetchFeed = async () => {
+  const fetchFeed = useCallback(async () => {
     try {
-      console.log('[FEED] Fetching from:', `${BACKEND_URL}/api/feed`);
       const res = await fetch(`${BACKEND_URL}/api/feed`);
-      console.log('[FEED] Response status:', res.status, res.statusText);
-
       if (res.ok) {
         const data = await res.json();
-        console.log('[FEED] Data received:', data);
-        console.log('[FEED] Posts count:', data.posts?.length || 0);
         setPosts(data.posts || []);
-      } else {
-        const errorText = await res.text();
-        console.error('[FEED] Error response:', errorText);
       }
     } catch (e) {
       console.error("[FEED] Failed to fetch feed", e);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handlePostDelete = (postId: string) => {
+  const handlePostDelete = useCallback((postId: string) => {
     setPosts(prevPosts => prevPosts.filter(post => post.id !== postId));
-  };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-6">
@@ -47,16 +51,6 @@ export default function Feed() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-primary" />
             <h1 className="text-xl font-black tracking-tight">Truth Feed</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-2 hover:bg-muted rounded-full transition-colors relative"
-            >
-              <Bell className="w-6 h-6 text-foreground" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-background" />
-            </motion.button>
           </div>
         </div>
       </header>
@@ -69,30 +63,25 @@ export default function Feed() {
           </div>
         ) : posts.length > 0 ? (
           <section className="space-y-6 px-4 pb-20 md:pb-6">
-            {posts.map((post, index) => (
-              <motion.div
+            {posts.map((post) => (
+              <PostCard
                 key={post.id}
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(index, 5) * 0.1 }}
-              >
-                <PostCard
-                  id={post.id}
-                  userId={post.user_id}
-                  userAvatar={post.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.profiles?.username || 'deleted'}`}
-                  username={post.profiles?.display_name || post.profiles?.username || "Deleted User"}
-                  image={post.media_url}
-                  caption={post.caption || ""}
-                  likes={post.like_count || 0}
-                  comments={post.comment_count || 0}
-                  timestamp={new Date(post.created_at).toLocaleDateString()}
-                  isVerified={post.verification?.verdict === 'REAL'}
-                  authenticityLabel={post.verification?.authenticity_label || post.authenticity_label || 'VERIFIED_REAL'}
-                  authorTrustScore={post.profiles?.trust_score ?? 50}
-                  authorTrustStatus={post.profiles?.trust_status || 'NEW_USER'}
-                  onDelete={handlePostDelete}
-                />
-              </motion.div>
+                id={post.id}
+                userId={post.user_id}
+                userAvatar={post.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.profiles?.username || 'deleted'}`}
+                username={post.profiles?.display_name || post.profiles?.username || "Deleted User"}
+                image={post.media_url}
+                caption={post.caption || ""}
+                likes={post.like_count || 0}
+                comments={post.comment_count || 0}
+                timestamp={new Date(post.created_at).toLocaleDateString()}
+                isVerified={post.verification?.verdict === 'REAL'}
+                authenticityLabel={post.verification?.authenticity_label || post.authenticity_label || 'VERIFIED_REAL'}
+                authorTrustScore={post.profiles?.trust_score ?? 50}
+                authorTrustStatus={post.profiles?.trust_status || 'NEW_USER'}
+                onDelete={handlePostDelete}
+                currentUserId={currentUserId || undefined}
+              />
             ))}
           </section>
         ) : (

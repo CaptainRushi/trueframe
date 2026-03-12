@@ -1,16 +1,16 @@
 import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Trash2, Eye, Flag, AlertTriangle } from "lucide-react";
-import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, memo, lazy, Suspense } from "react";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
 import { TrustShield } from "@/components/ui/TrustShield";
 import { AuthenticityLabel } from "@/components/ui/AuthenticityLabel";
 import { supabase } from "@/lib/supabase";
-import { TransparencyPanel } from "@/components/transparency/TransparencyPanel";
-import { FlagModal } from "@/components/community/FlagModal";
-import { CommentSection } from "@/components/feed/CommentSection";
-
-import { ShareModal } from "@/components/share/ShareModal";
 import { BACKEND_URL } from "@/lib/api";
+
+// Lazy load heavy modal components - only loaded when user interacts
+const TransparencyPanel = lazy(() => import("@/components/transparency/TransparencyPanel").then(m => ({ default: m.TransparencyPanel })));
+const FlagModal = lazy(() => import("@/components/community/FlagModal").then(m => ({ default: m.FlagModal })));
+const CommentSection = lazy(() => import("@/components/feed/CommentSection").then(m => ({ default: m.CommentSection })));
+const ShareModal = lazy(() => import("@/components/share/ShareModal").then(m => ({ default: m.ShareModal })));
 
 interface PostCardProps {
   id: string;
@@ -28,9 +28,10 @@ interface PostCardProps {
   authorTrustStatus?: string;
   visibility?: string;
   onDelete?: (postId: string) => void;
+  currentUserId?: string; // Pass from parent to avoid repeated auth calls
 }
 
-export function PostCard({
+export const PostCard = memo(function PostCard({
   id,
   userId,
   userAvatar,
@@ -46,36 +47,33 @@ export function PostCard({
   authorTrustStatus = "NEW_USER",
   visibility = "PUBLIC",
   onDelete,
+  currentUserId,
 }: PostCardProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [likeCount, setLikeCount] = useState(initialLikes);
   const [commentCount, setCommentCount] = useState(initialComments);
-  const [isOwner, setIsOwner] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Lazy modal states - modals only mount when first opened
   const [showShareModal, setShowShareModal] = useState(false);
   const [showTransparency, setShowTransparency] = useState(false);
   const [showFlagModal, setShowFlagModal] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  // Track if modals have ever been opened (keep mounted after first open for snappier re-open)
+  const [mountedModals, setMountedModals] = useState({
+    share: false, transparency: false, flag: false, comments: false
+  });
+
+  // Derive ownership from passed-in currentUserId instead of calling auth
+  const isOwner = !!currentUserId && currentUserId === userId;
 
   useEffect(() => {
     checkLikeStatus();
-    checkOwnership();
-  }, [id, userId]); // Added userId to dependency array for checkOwnership
+  }, [id]);
 
-  const checkOwnership = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user && user.id === userId) {
-        setIsOwner(true);
-      }
-    } catch (e) {
-      console.error('Failed to check ownership', e);
-    }
-  };
-
-  const checkLikeStatus = async () => {
+  const checkLikeStatus = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
@@ -89,17 +87,21 @@ export function PostCard({
         setIsLiked(data.liked);
       }
     } catch (e) {
-      console.error('Failed to check like status', e);
+      // Silently fail
     }
-  };
+  }, [id]);
 
-  const handleLike = async () => {
+  const handleLike = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         alert('Please log in to like posts');
         return;
       }
+
+      // Optimistic update
+      setIsLiked(prev => !prev);
+      setLikeCount(prev => isLiked ? prev - 1 : prev + 1);
 
       const res = await fetch(`${BACKEND_URL}/api/social/like/${id}`, {
         method: 'POST',
@@ -109,19 +111,39 @@ export function PostCard({
       if (res.ok) {
         const data = await res.json();
         setIsLiked(data.liked);
-        setLikeCount(prev => data.liked ? prev + 1 : prev - 1);
+        setLikeCount(prev => data.liked ? initialLikes + 1 : initialLikes);
+      } else {
+        // Revert on failure
+        setIsLiked(prev => !prev);
+        setLikeCount(prev => isLiked ? prev + 1 : prev - 1);
       }
     } catch (e) {
       console.error('Failed to toggle like', e);
     }
-  };
+  }, [id, isLiked, initialLikes]);
 
-  const handleShare = () => {
-    if (!isVerified) return; // Prevent sharing unverified content
+  const handleShare = useCallback(() => {
+    if (!isVerified) return;
     setShowShareModal(true);
-  };
+    setMountedModals(prev => ({ ...prev, share: true }));
+  }, [isVerified]);
 
-  const handleDelete = async () => {
+  const openTransparency = useCallback(() => {
+    setShowTransparency(true);
+    setMountedModals(prev => ({ ...prev, transparency: true }));
+  }, []);
+
+  const openFlag = useCallback(() => {
+    setShowFlagModal(true);
+    setMountedModals(prev => ({ ...prev, flag: true }));
+  }, []);
+
+  const openComments = useCallback(() => {
+    setShowComments(true);
+    setMountedModals(prev => ({ ...prev, comments: true }));
+  }, []);
+
+  const handleDelete = useCallback(async () => {
     if (!confirm('Are you sure you want to delete this post? This action cannot be undone.')) {
       return;
     }
@@ -141,9 +163,7 @@ export function PostCard({
 
       if (res.ok) {
         alert('Post deleted successfully');
-        if (onDelete) {
-          onDelete(id);
-        }
+        onDelete?.(id);
       } else {
         const error = await res.json();
         alert(error.error || 'Failed to delete post');
@@ -155,14 +175,10 @@ export function PostCard({
       setIsDeleting(false);
       setShowMenu(false);
     }
-  };
+  }, [id, onDelete]);
 
   return (
-    <motion.article
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-card rounded-3xl shadow-card overflow-hidden"
-    >
+    <article className="bg-card rounded-3xl shadow-card overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between p-4">
         <div className="flex items-center gap-3">
@@ -171,6 +187,8 @@ export function PostCard({
               src={userAvatar}
               alt={username}
               className="w-10 h-10 rounded-full object-cover ring-2 ring-primary/20"
+              loading="lazy"
+              decoding="async"
             />
             {isVerified && (
               <div className="absolute -bottom-1 -right-1">
@@ -224,6 +242,7 @@ export function PostCard({
           src={image}
           alt="Post content"
           loading="lazy"
+          decoding="async"
           className="w-full h-full object-cover"
         />
         {isVerified && visibility !== 'UNDER_REVIEW' && (
@@ -246,19 +265,18 @@ export function PostCard({
       <div className="p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <motion.button
-              whileTap={{ scale: 0.8 }}
+            <button
               onClick={handleLike}
-              className="flex items-center gap-1"
+              className="flex items-center gap-1 active:scale-90 transition-transform"
             >
               <Heart
                 className={`w-6 h-6 transition-colors ${isLiked ? "text-destructive fill-destructive" : "text-foreground"
                   }`}
               />
               <span className="text-sm font-medium">{likeCount.toLocaleString()}</span>
-            </motion.button>
+            </button>
             <button
-              onClick={() => setShowComments(true)}
+              onClick={openComments}
               className="flex items-center gap-1 hover:text-primary transition-colors"
             >
               <MessageCircle className="w-6 h-6 text-foreground" />
@@ -269,20 +287,20 @@ export function PostCard({
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <motion.button whileTap={{ scale: 0.8 }} onClick={() => setShowTransparency(true)} title="View Transparency">
+            <button onClick={openTransparency} title="View Transparency" className="active:scale-90 transition-transform">
               <Eye className="w-5 h-5 text-muted-foreground hover:text-primary transition-colors" />
-            </motion.button>
+            </button>
             {!isOwner && (
-              <motion.button whileTap={{ scale: 0.8 }} onClick={() => setShowFlagModal(true)} title="Flag Content">
+              <button onClick={openFlag} title="Flag Content" className="active:scale-90 transition-transform">
                 <Flag className="w-5 h-5 text-muted-foreground hover:text-yellow-500 transition-colors" />
-              </motion.button>
+              </button>
             )}
-            <motion.button whileTap={{ scale: 0.8 }} onClick={() => setIsSaved(!isSaved)}>
+            <button onClick={() => setIsSaved(!isSaved)} className="active:scale-90 transition-transform">
               <Bookmark
                 className={`w-6 h-6 transition-colors ${isSaved ? "text-primary fill-primary" : "text-foreground"
                   }`}
               />
-            </motion.button>
+            </button>
           </div>
         </div>
 
@@ -294,27 +312,39 @@ export function PostCard({
 
         <p className="text-xs text-muted-foreground uppercase">{timestamp}</p>
       </div>
-      <ShareModal
-        isOpen={showShareModal}
-        onClose={() => setShowShareModal(false)}
-        post={{ id, caption, verification_status: isVerified ? 'APPROVED' : 'PENDING' }}
-      />
-      <TransparencyPanel
-        postId={id}
-        isOpen={showTransparency}
-        onClose={() => setShowTransparency(false)}
-      />
-      <FlagModal
-        postId={id}
-        isOpen={showFlagModal}
-        onClose={() => setShowFlagModal(false)}
-      />
-      <CommentSection
-        postId={id}
-        isOpen={showComments}
-        onClose={() => setShowComments(false)}
-        onCommentAdded={() => setCommentCount(prev => prev + 1)}
-      />
-    </motion.article>
+
+      {/* Lazy-loaded modals - only mount when first opened */}
+      <Suspense fallback={null}>
+        {mountedModals.share && (
+          <ShareModal
+            isOpen={showShareModal}
+            onClose={() => setShowShareModal(false)}
+            post={{ id, caption, verification_status: isVerified ? 'APPROVED' : 'PENDING' }}
+          />
+        )}
+        {mountedModals.transparency && (
+          <TransparencyPanel
+            postId={id}
+            isOpen={showTransparency}
+            onClose={() => setShowTransparency(false)}
+          />
+        )}
+        {mountedModals.flag && (
+          <FlagModal
+            postId={id}
+            isOpen={showFlagModal}
+            onClose={() => setShowFlagModal(false)}
+          />
+        )}
+        {mountedModals.comments && (
+          <CommentSection
+            postId={id}
+            isOpen={showComments}
+            onClose={() => setShowComments(false)}
+            onCommentAdded={() => setCommentCount(prev => prev + 1)}
+          />
+        )}
+      </Suspense>
+    </article>
   );
-}
+});

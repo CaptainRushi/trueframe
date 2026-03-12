@@ -150,6 +150,7 @@ class DeepfakeGuardProcess:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
+        # No file provided — still output valid JSON so backend can parse it
         print(json.dumps({
             "model": "efficientnet+huggingface-ensemble",
             "model_score": 0.1,
@@ -161,13 +162,33 @@ if __name__ == "__main__":
             "verdict": "REJECTED",
             "signals": ["no_file_provided"]
         }))
-        sys.exit(1)
+        sys.exit(0)  # Exit 0 so backend can parse the JSON verdict
+
+    file_path = sys.argv[1]
+
+    # Pre-check: does the file exist?
+    if not os.path.exists(file_path):
+        print(json.dumps({
+            "model": "efficientnet+huggingface-ensemble",
+            "model_score": 0.1,
+            "artifact_score": 0.0,
+            "temporal_score": 0.0,
+            "metadata_score": 0.0,
+            "compression_score": 0.0,
+            "final_score": 0.1,
+            "verdict": "REJECTED",
+            "signals": [f"File {file_path} not found.", "fail_closed"]
+        }))
+        sys.exit(0)  # Exit 0 — backend will read the REJECTED verdict
 
     try:
         guard = DeepfakeGuardProcess()
-        report = guard.run(sys.argv[1])
+        report = guard.run(file_path)
         print(json.dumps(report))
+        sys.exit(0)
     except Exception as e:
+        # Fail-closed: output valid JSON with REJECTED verdict
+        # Exit 0 so the backend can still parse and use this decision
         print(json.dumps({
             "model": "efficientnet+huggingface-ensemble",
             "model_score": 0.1,
@@ -179,4 +200,4 @@ if __name__ == "__main__":
             "verdict": "REJECTED",
             "signals": [f"engine_error: {str(e)}", "fail_closed"]
         }))
-        sys.exit(1)
+        sys.exit(0)

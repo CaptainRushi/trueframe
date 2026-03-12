@@ -15,4 +15,25 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Target modern browsers for smaller output
+    target: 'es2020',
+    // Enable CSS code splitting
+    cssCodeSplit: true,
+    // Optimize chunk size
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunk for framework essentials
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          // Separate chunk for heavy UI libraries
+          'ui-vendor': ['framer-motion', 'lucide-react', 'recharts'],
+          // Separate chunk for data layer
+          'data-vendor': ['@supabase/supabase-js', '@tanstack/react-query'],
+        },
+      },
+    },
+    // Increase chunk size warning limit
+    chunkSizeWarningLimit: 500,
+  },
 }));
