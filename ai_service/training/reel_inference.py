@@ -105,14 +105,14 @@ class ReelInferenceEngine:
             try:
                 import mediapipe.python.solutions as mp_solutions
                 self.mp_face = mp_solutions.face_detection
-            except ImportError:
+            except (ImportError, AttributeError):
                 self.mp_face = mp.solutions.face_detection
 
             self.face_det = self.mp_face.FaceDetection(
                 model_selection=1, min_detection_confidence=0.5
             )
             self.face_backend = "mediapipe"
-        except ImportError:
+        except Exception:
             self.face_det = cv2.CascadeClassifier(
                 cv2.data.haarcascades
                 + "haarcascade_frontalface_default.xml"
