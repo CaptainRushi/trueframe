@@ -46,7 +46,7 @@ class ReelsFaceDetector:
             try:
                 import mediapipe.python.solutions as mp_solutions
                 self.mp_face = mp_solutions.face_detection
-            except ImportError:
+            except (ImportError, AttributeError):
                 self.mp_face = mp.solutions.face_detection
 
             self.detector = self.mp_face.FaceDetection(
@@ -54,7 +54,7 @@ class ReelsFaceDetector:
                 min_detection_confidence=self.confidence,
             )
             self.backend = "mediapipe"
-        except ImportError:
+        except Exception:
             self.detector = cv2.CascadeClassifier(
                 cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
             )
