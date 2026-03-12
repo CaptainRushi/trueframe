@@ -42,14 +42,14 @@ export const SideNav = memo(function SideNav() {
   }, [fetchUnreadCount]);
 
   return (
-    <nav className="w-full h-full glass p-6 flex flex-col pt-10">
+    <nav className="w-full h-full glass p-2 lg:p-6 flex flex-col pt-10">
       {/* Brand logo */}
-      <div className="flex items-center gap-3 mb-10 px-4">
-        <ShieldCheck className="w-8 h-8 text-primary" />
-        <span className="text-2xl font-black text-foreground">TrueFrame</span>
+      <div className="flex items-center justify-center lg:justify-start gap-3 mb-10 px-2 lg:px-4 shrink-0">
+        <ShieldCheck className="w-8 h-8 text-primary shrink-0" />
+        <span className="hidden lg:block text-2xl font-black text-foreground">TrueFrame</span>
       </div>
 
-      <div className="flex flex-col gap-2 flex-1">
+      <div className="flex flex-col gap-2 flex-1 items-center lg:items-stretch">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           const isUpload = item.label === "Upload";
@@ -59,13 +59,14 @@ export const SideNav = memo(function SideNav() {
             <Link
               key={item.path}
               to={item.path}
-              className={`relative flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
+              className={`relative flex items-center justify-center lg:justify-start gap-4 p-3 lg:px-4 lg:py-3 rounded-2xl transition-all group ${
                 isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
+              title={item.label}
             >
-              <div className="relative">
+              <div className="relative shrink-0">
                 <item.icon
-                  className={`w-6 h-6 transition-transform group-hover:scale-110 ${
+                  className={`w-6 h-6 lg:w-6 lg:h-6 transition-transform group-hover:scale-110 ${
                     isUpload && "text-primary border-2 border-primary rounded-lg p-0.5"
                   }`}
                   fill={isActive && !isUpload ? "currentColor" : "none"}
@@ -76,7 +77,7 @@ export const SideNav = memo(function SideNav() {
                   </span>
                 )}
               </div>
-              <span className={`text-lg font-bold ${isActive ? "text-primary" : "text-foreground"}`}>
+              <span className={`hidden lg:block text-lg font-bold ${isActive ? "text-primary" : "text-foreground"}`}>
                 {item.label}
               </span>
               
