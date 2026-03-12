@@ -102,8 +102,12 @@ class ReelInferenceEngine:
     def _init_face_detector(self):
         try:
             import mediapipe as mp
+            try:
+                import mediapipe.python.solutions as mp_solutions
+                self.mp_face = mp_solutions.face_detection
+            except ImportError:
+                self.mp_face = mp.solutions.face_detection
 
-            self.mp_face = mp.solutions.face_detection
             self.face_det = self.mp_face.FaceDetection(
                 model_selection=1, min_detection_confidence=0.5
             )

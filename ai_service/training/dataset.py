@@ -43,7 +43,12 @@ class ReelsFaceDetector:
     def _init_detector(self):
         try:
             import mediapipe as mp
-            self.mp_face = mp.solutions.face_detection
+            try:
+                import mediapipe.python.solutions as mp_solutions
+                self.mp_face = mp_solutions.face_detection
+            except ImportError:
+                self.mp_face = mp.solutions.face_detection
+
             self.detector = self.mp_face.FaceDetection(
                 model_selection=1,  # Full-range model for varied distances
                 min_detection_confidence=self.confidence,
