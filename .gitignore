@@ -56,3 +56,7 @@ dump.rdb
 # Test files
 test_photo.png
 sample_upload.mp4
+
+# Antigravity/Graphify output
+graphify-out/
+scratch/

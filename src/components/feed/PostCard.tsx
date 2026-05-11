@@ -18,6 +18,7 @@ interface PostCardProps {
   userAvatar: string;
   username: string;
   image: string;
+  mediaType?: string;
   caption: string;
   likes: number;
   comments: number;
@@ -37,6 +38,7 @@ export const PostCard = memo(function PostCard({
   userAvatar,
   username,
   image,
+  mediaType,
   caption,
   likes: initialLikes,
   comments: initialComments,
@@ -236,15 +238,25 @@ export const PostCard = memo(function PostCard({
         )}
       </div>
 
-      {/* Image */}
+      {/* Media */}
       <div className="relative aspect-[4/5] bg-muted">
-        <img
-          src={image}
-          alt="Post content"
-          loading="lazy"
-          decoding="async"
-          className="w-full h-full object-cover"
-        />
+        {mediaType === "video" ? (
+          <video
+            src={image}
+            controls
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <img
+            src={image}
+            alt="Post content"
+            loading="lazy"
+            decoding="async"
+            className="w-full h-full object-cover"
+          />
+        )}
         {isVerified && visibility !== 'UNDER_REVIEW' && (
           <div className="absolute top-3 right-3">
             <AuthenticityLabel label={authenticityLabel} />

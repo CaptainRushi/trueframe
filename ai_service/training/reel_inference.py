@@ -259,6 +259,8 @@ class ReelInferenceEngine:
 
     def _build_result(self, prob, signals, start_time):
         elapsed_ms = (time.time() - start_time) * 1000
+        prob_rounded = round(prob, 4)
+        authenticity_score = round(1.0 - prob, 4)
 
         if prob >= self.THRESHOLD_REJECT:
             verdict = "REJECTED"
@@ -277,8 +279,14 @@ class ReelInferenceEngine:
 
         return {
             "model": "trueframe-reels-efficientnet-lstm",
-            "deepfake_probability": round(prob, 4),
-            "authenticity_score": round(1.0 - prob, 4),
+            "model_score": prob_rounded,
+            "artifact_score": 0.0,
+            "temporal_score": 0.0,
+            "metadata_score": 0.0,
+            "compression_score": 0.0,
+            "final_score": prob_rounded,
+            "deepfake_probability": prob_rounded,
+            "authenticity_score": authenticity_score,
             "verdict": verdict,
             "confidence": confidence,
             "inference_time_ms": round(elapsed_ms, 1),
@@ -296,7 +304,14 @@ if __name__ == "__main__":
             json.dumps(
                 {
                     "model": "trueframe-reels-efficientnet-lstm",
+                    "model_score": 0.5,
+                    "artifact_score": 0.0,
+                    "temporal_score": 0.0,
+                    "metadata_score": 0.0,
+                    "compression_score": 0.0,
+                    "final_score": 0.5,
                     "deepfake_probability": 0.5,
+                    "authenticity_score": 0.5,
                     "verdict": "REJECTED",
                     "signals": ["no_file_provided"],
                 }
@@ -313,7 +328,14 @@ if __name__ == "__main__":
             json.dumps(
                 {
                     "model": "trueframe-reels-efficientnet-lstm",
+                    "model_score": 0.5,
+                    "artifact_score": 0.0,
+                    "temporal_score": 0.0,
+                    "metadata_score": 0.0,
+                    "compression_score": 0.0,
+                    "final_score": 0.5,
                     "deepfake_probability": 0.5,
+                    "authenticity_score": 0.5,
                     "verdict": "REJECTED",
                     "signals": [f"engine_error: {str(e)}", "fail_closed"],
                 }

@@ -64,18 +64,19 @@ export default function Feed() {
         ) : posts.length > 0 ? (
           <section className="space-y-6 px-4 pb-20 md:pb-6">
             {posts.map((post) => (
-              <PostCard
-                key={post.id}
-                id={post.id}
-                userId={post.user_id}
-                userAvatar={post.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.profiles?.username || 'deleted'}`}
-                username={post.profiles?.display_name || post.profiles?.username || "Deleted User"}
-                image={post.media_url}
-                caption={post.caption || ""}
-                likes={post.like_count || 0}
-                comments={post.comment_count || 0}
-                timestamp={new Date(post.created_at).toLocaleDateString()}
-                isVerified={post.verification?.verdict === 'REAL'}
+                <PostCard
+                  key={post.id}
+                  id={post.id}
+                  userId={post.user_id}
+                  userAvatar={post.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.profiles?.username || 'deleted'}`}
+                  username={post.profiles?.display_name || post.profiles?.username || "Deleted User"}
+                  image={post.media_url}
+                  mediaType={post.media_type}
+                  caption={post.caption || ""}
+                  likes={post.like_count || 0}
+                  comments={post.comment_count || 0}
+                  timestamp={new Date(post.created_at).toLocaleDateString()}
+                  isVerified={post.verification?.verdict === 'REAL'}
                 authenticityLabel={post.verification?.authenticity_label || post.authenticity_label || 'VERIFIED_REAL'}
                 authorTrustScore={post.profiles?.trust_score ?? 50}
                 authorTrustStatus={post.profiles?.trust_status || 'NEW_USER'}
