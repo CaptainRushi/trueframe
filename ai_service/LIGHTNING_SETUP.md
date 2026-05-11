@@ -15,7 +15,7 @@ Open the terminal in your Lightning Studio and run:
 
 ```bash
 # 1. Clone your repository
-git clone <your-repo-url>
+git clone https://github.com/CaptainRushi/trueframe.git
 cd Trueframe-1/verified-stream/ai_service
 
 # 2. Create a virtual environment (optional but recommended)
