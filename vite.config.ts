@@ -23,14 +23,8 @@ export default defineConfig(({ mode }) => ({
     // Optimize chunk size
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Vendor chunk for framework essentials
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          // Separate chunk for heavy UI libraries
-          'ui-vendor': ['framer-motion', 'lucide-react', 'recharts'],
-          // Separate chunk for data layer
-          'data-vendor': ['@supabase/supabase-js', '@tanstack/react-query'],
-        },
+        // Let Vite handle chunking automatically to prevent React internals errors
+        // manualChunks: undefined
       },
     },
     // Increase chunk size warning limit
