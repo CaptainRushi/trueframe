@@ -117,7 +117,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Previously rejected content (hash match)');
         await updateProfileTrustScore(userId);
         if (existsSync(tempPath)) unlinkSync(tempPath);
-        return reply.code(400).send({
+        return reply.code(200).send({
           verified: false,
           reason: 'This content was previously rejected. Uploading known-fake content impacts your trust score.'
         });
@@ -125,18 +125,76 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 
       // --- 2. DEEPFAKE DETECTION ---
       // Determine if image or video to run appropriate engine
-      const isVideo = data.mimetype.startsWith('video');
-      const engineFile = isVideo ? 'training/reel_inference.py' : 'main.py';
-      const aiEnginePath = join(process.cwd(), '..', 'ai_service', engineFile);
-      
+      const mimeType = data.mimetype || 'application/octet-stream';
+      const isVideo = mimeType.startsWith('video');
+      const primaryEngineFile = isVideo ? 'training/reel_inference.py' : 'main.py';
+      const primaryEnginePath = join(process.cwd(), '..', 'ai_service', primaryEngineFile);
+      const fallbackEnginePath = isVideo ? join(process.cwd(), '..', 'ai_service', 'main.py') : null;
+
       let mediaResult: any;
+      let usedFallback = false;
+      let primaryError: Error | null = null;
       try {
-        mediaResult = await runAIVerification(aiEnginePath, tempPath);
+        mediaResult = await runAIVerification(primaryEnginePath, tempPath);
       } catch (e: any) {
-        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'REJECTED', 1.0, 1.0, `Engine Error: ${e.message}`);
+        primaryError = e instanceof Error
+          ? e
+          : new Error(e?.message || (isVideo ? 'Unknown video engine error' : 'Unknown engine error'));
+      }
+
+      if (!isVideo && primaryError) {
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'REJECTED', 1.0, 1.0, `Engine Error: ${primaryError.message}`);
         await updateProfileTrustScore(userId);
         if (existsSync(tempPath)) unlinkSync(tempPath);
-        return reply.code(400).send({ verified: false, reason: e.message || 'Deepfake service error' });
+        return reply.code(200).send({ verified: false, reason: primaryError.message || 'Deepfake service error' });
+      }
+
+      if (isVideo) {
+        if (!hasValidVerdict(mediaResult) && fallbackEnginePath) {
+          try {
+            mediaResult = await runAIVerification(fallbackEnginePath, tempPath);
+            usedFallback = true;
+          } catch (fallbackError: any) {
+            const fallbackMessage = fallbackError?.message || 'Unknown fallback error';
+            const primaryMessage = primaryError ? `Primary model error: ${primaryError.message}. ` : '';
+            const combined = `${primaryMessage}Fallback model error: ${fallbackMessage}`;
+            await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'REJECTED', 1.0, 1.0, `Engine Error: ${combined}`);
+            await updateProfileTrustScore(userId);
+            if (existsSync(tempPath)) unlinkSync(tempPath);
+            return reply.code(200).send({ verified: false, reason: combined });
+          }
+        }
+
+        mediaResult = normalizeVideoResult(mediaResult);
+        if (!usedFallback && shouldFallbackToMain(mediaResult) && fallbackEnginePath) {
+          try {
+            mediaResult = await runAIVerification(fallbackEnginePath, tempPath);
+            usedFallback = true;
+            mediaResult = normalizeVideoResult(mediaResult);
+          } catch (fallbackError: any) {
+            const fallbackMessage = fallbackError?.message || 'Unknown fallback error';
+            const signalReason = Array.isArray(mediaResult?.signals)
+              ? `Primary model signals: ${mediaResult.signals.join(', ')}. `
+              : '';
+            const combined = `${signalReason}Fallback model error: ${fallbackMessage}`;
+            await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'REJECTED', 1.0, 1.0, `Engine Error: ${combined}`);
+            await updateProfileTrustScore(userId);
+            if (existsSync(tempPath)) unlinkSync(tempPath);
+            return reply.code(200).send({ verified: false, reason: combined });
+          }
+        }
+        if (usedFallback) {
+          mediaResult.signals = Array.isArray(mediaResult.signals)
+            ? Array.from(new Set([...mediaResult.signals, 'fallback_used']))
+            : ['fallback_used'];
+        }
+      }
+
+      if (!hasValidVerdict(mediaResult)) {
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'REJECTED', 1.0, 1.0, 'Engine Error: Invalid AI verdict output');
+        await updateProfileTrustScore(userId);
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(200).send({ verified: false, reason: 'Invalid AI verdict output' });
       }
 
       const modelScore = mediaResult.model_score ?? 0;
@@ -186,7 +244,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
           await logVerification(userId, mediaHash, 'APPROVED', 'REJECTED', 'REJECTED', 1.0, 1.0, `Context Engine Error: ${e.message}`);
           await updateProfileTrustScore(userId);
           if (existsSync(tempPath)) unlinkSync(tempPath);
-          return reply.code(400).send({ verified: false, reason: 'Context service error' });
+          return reply.code(200).send({ verified: false, reason: 'Context service error' });
         }
       }
 
@@ -223,7 +281,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         modelScore,
         finalScore,
         finalReason,
-        data.mimetype.startsWith('video') ? 'video' : 'image',
+        isVideo ? 'video' : 'image',
         modelName,
         modelVersion,
         authenticityLabel,
@@ -240,12 +298,12 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         // Upload content but mark as pending review — not visible in public feed
         const storagePath = `${userId}/${Date.now()}_${data.filename}`;
         const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(storagePath);
-        await supabase.storage.from('posts').upload(storagePath, fileBuffer, { contentType: data.mimetype });
+        await supabase.storage.from('posts').upload(storagePath, fileBuffer, { contentType: mimeType });
 
         const { data: newPost } = await supabase.from('posts').insert({
           user_id: userId,
           media_url: publicUrl,
-          media_type: data.mimetype.startsWith('video') ? 'video' : 'image',
+          media_type: isVideo ? 'video' : 'image',
           caption: caption,
           verification_log_id: logEntry?.id,
           media_hash_check: mediaHash,
@@ -282,12 +340,12 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       if (finalVerdict === 'REAL') {
         const storagePath = `${userId}/${Date.now()}_${data.filename}`;
         const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(storagePath);
-        await supabase.storage.from('posts').upload(storagePath, fileBuffer, { contentType: data.mimetype });
+        await supabase.storage.from('posts').upload(storagePath, fileBuffer, { contentType: mimeType });
 
         const { data: newPost } = await supabase.from('posts').insert({
           user_id: userId,
           media_url: publicUrl,
-          media_type: data.mimetype.startsWith('video') ? 'video' : 'image',
+          media_type: isVideo ? 'video' : 'image',
           caption: caption,
           verification_log_id: logEntry?.id,
           media_hash_check: mediaHash,
@@ -332,7 +390,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         await trackDeepfakeAlert(mediaHash, finalReason);
 
         if (existsSync(tempPath)) unlinkSync(tempPath);
-        return reply.code(400).send({
+        return reply.code(200).send({
           verified: false,
           fakeNews: fakeNewsVerdict === 'REJECTED',
           reason: finalReason,
@@ -361,6 +419,45 @@ async function runAIVerification(scriptPath: string, filePath: string): Promise<
 
 async function runContextVerification(scriptPath: string, caption: string, filePath: string): Promise<any> {
   return runAIScript(scriptPath, [caption, filePath], 120000); // 2 minutes
+}
+
+function hasValidVerdict(result: any): boolean {
+  return !!(result && typeof result.verdict === 'string' && result.verdict.length > 0);
+}
+
+function normalizeVideoResult(result: any): any {
+  if (!result || typeof result !== 'object') return result;
+
+  const normalized = { ...result };
+  const prob = Number.isFinite(normalized.deepfake_probability) ? normalized.deepfake_probability : null;
+
+  if (!Number.isFinite(normalized.model_score) && prob !== null) {
+    normalized.model_score = prob;
+  }
+  if (!Number.isFinite(normalized.final_score) && prob !== null) {
+    normalized.final_score = prob;
+  }
+
+  if (!Number.isFinite(normalized.artifact_score)) normalized.artifact_score = 0;
+  if (!Number.isFinite(normalized.temporal_score)) normalized.temporal_score = 0;
+  if (!Number.isFinite(normalized.metadata_score)) normalized.metadata_score = 0;
+  if (!Number.isFinite(normalized.compression_score)) normalized.compression_score = 0;
+
+  if (!Array.isArray(normalized.signals)) normalized.signals = [];
+  return normalized;
+}
+
+function shouldFallbackToMain(result: any): boolean {
+  if (!result || typeof result !== 'object') return true;
+  const signals = Array.isArray(result.signals) ? result.signals : [];
+  return signals.some((sig) =>
+    typeof sig === 'string' && (
+      sig === 'model_inference_failed' ||
+      sig === 'fail_closed' ||
+      sig === 'no_file_provided' ||
+      sig.startsWith('engine_error')
+    )
+  );
 }
 
 async function logVerification(

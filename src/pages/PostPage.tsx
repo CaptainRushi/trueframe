@@ -94,6 +94,7 @@ export default function PostPage() {
                     userAvatar={post.profiles?.avatar_url}
                     username={post.profiles?.username || "Verified User"}
                     image={post.media_url}
+                    mediaType={post.media_type}
                     caption={post.caption}
                     likes={post.like_count || 0}
                     comments={post.comment_count || 0}
