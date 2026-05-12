@@ -20,10 +20,10 @@ class EfficientNetONNXDetector:
         
         if os.path.exists(model_path):
             try:
-                # Use CPUExecutionProvider only as per requirement
+                # Use CUDA if available, fallback to CPU
                 self.session = ort.InferenceSession(
                     model_path, 
-                    providers=['CPUExecutionProvider']
+                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
                 )
                 _log(f"[AI-MODEL] Loaded EfficientNet-B0 from {model_path}")
             except Exception as e:
@@ -63,8 +63,8 @@ class EfficientNetONNXDetector:
         Return a single probability score (0-1).
         """
         if self.session is None:
-            # FALLBACK: If model missing, return low risk (0.1) for testing
-            return 0.1
+            # FAIL-CLOSED: If model missing, raise an error to reject upload
+            raise RuntimeError("EfficientNet ONNX model is missing. Failing closed.")
             
         try:
             input_tensor = self.preprocess(face_crop_bgr)
@@ -84,7 +84,7 @@ class EfficientNetONNXDetector:
             
         except Exception as e:
             _log(f"[AI-MODEL] Inference error: {e}")
-            return 0.1 # FALLBACK
+            raise RuntimeError(f"EfficientNet inference failed: {e}")
 
     def predict_batch(self, face_crops_bgr):
         """
@@ -93,7 +93,7 @@ class EfficientNetONNXDetector:
         if not face_crops_bgr:
             return []
         if self.session is None:
-            return [0.1] * len(face_crops_bgr)
+            raise RuntimeError("EfficientNet ONNX model is missing. Failing closed.")
             
         try:
             # Batch preprocessing
@@ -108,7 +108,7 @@ class EfficientNetONNXDetector:
             
         except Exception as e:
             _log(f"[AI-MODEL] Batch inference error: {e}")
-            return [0.1] * len(face_crops_bgr)
+            raise RuntimeError(f"EfficientNet batch inference failed: {e}")
 
 class HuggingFaceDeepfakeDetector:
     def __init__(self, model_name="dima806/deepfake_vs_real_image_detection"):
