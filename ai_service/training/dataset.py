@@ -44,7 +44,7 @@ class ReelsFaceDetector:
         try:
             import mediapipe as mp
             try:
-                import mediapipe.python.solutions as mp_solutions
+                import mediapipe.python.solutions as mp_solutions  # type: ignore
                 self.mp_face = mp_solutions.face_detection
             except (ImportError, AttributeError):
                 self.mp_face = mp.solutions.face_detection

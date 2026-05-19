@@ -33,8 +33,41 @@ graph TD
 
 ## 🧪 Methodology
 
-### Dataset
-The detection models are trained and validated using a combination of public deepfake datasets, primarily the **`dima806/deepfake_vs_real_image_detection`** ensemble from HuggingFace, supplemented by internal GAN-generated artifacts for frequency-domain training.
+### Datasets Used
+The detection models are trained, validated, and evaluated using a mix of public and specialized datasets to ensure generalization across different types of deepfakes:
+- **Primary Training Dataset**: The **`dima806/deepfake_vs_real_image_detection`** ensemble from HuggingFace, supplemented by internal GAN-generated artifacts for frequency-domain training.
+- **Cross-Dataset Evaluation**: Evaluated against major industry-standard deepfake benchmarks:
+  - **FaceForensics++**
+  - **DFDC (Deepfake Detection Challenge)**
+  - **Celeb-DF v2**
+
+### Model Evaluation & Results
+The system employs a **Weighted Score Fusion** architecture. Below are the final test metrics for the best-performing model (Run 3: Unfrozen Backbone + Data Augmentation):
+
+- **Overall Metrics**:
+  - **AUC-ROC Score**: `0.9648` (96.48%)
+  - **Accuracy**: `0.9061` (90.61%)
+  - **F1 Score**: `0.8991` (89.91%)
+
+- **Confusion Matrix Breakdown**:
+  - **True Positives (Predicted Fake, Actual Fake)**: 1,881
+  - **True Negatives (Predicted Real, Actual Real)**: 1,841
+  - **False Positives (Real flagged as fake)**: 159
+  - **False Negatives (Fake passed as real)**: 219
+
+- **Performance by Manipulation Type (AUC-ROC)**:
+  - FaceSwap: `0.979`
+  - AI Generation (GAN/Diffusion): `0.971`
+  - Reenactment: `0.964`
+  - LipSync: `0.948`
+  - Neural Textures: `0.944`
+
+- **Generalization (Cross-Dataset AUC-ROC)**:
+  - FaceForensics++: `0.981`
+  - Celeb-DF v2: `0.958`
+  - DFDC: `0.942`
+
+*(Visual plots such as learning curves, confusion matrices, and bar charts are available in the `ai_service/training/` directory).*
 
 ### Model Architecture
 TrueFrame employs a **Weighted Score Fusion** architecture:
