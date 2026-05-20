@@ -6,6 +6,7 @@ import { join } from 'path';
 import { promisify } from 'util';
 import { pipeline } from 'stream';
 import { supabase } from '../supabase.js';
+import { getAiServicePath } from '../lib/paths.js';
 
 const pump = promisify(pipeline);
 
@@ -143,7 +144,7 @@ export async function verificationRoutes(fastify: FastifyInstance) {
       if (sessionError) throw sessionError;
 
       // Run AI selfie verification
-      const selfieEnginePath = join(process.cwd(), '..', 'ai_service', 'selfie_verify.py');
+      const selfieEnginePath = getAiServicePath('selfie_verify.py');
       let aiResult: any;
 
       try {

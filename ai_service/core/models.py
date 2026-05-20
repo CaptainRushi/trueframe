@@ -19,15 +19,27 @@ class EfficientNetONNXDetector:
         self.session = None
         
         if os.path.exists(model_path):
+            loaded = False
             try:
-                # Use CUDA if available, fallback to CPU
+                # Try CUDA first if available
                 self.session = ort.InferenceSession(
                     model_path, 
-                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+                    providers=['CUDAExecutionProvider']
                 )
-                _log(f"[AI-MODEL] Loaded EfficientNet-B0 from {model_path}")
-            except Exception as e:
-                _log(f"[AI-MODEL] Error loading ONNX model: {e}")
+                _log(f"[AI-MODEL] Loaded EfficientNet-B0 with CUDA from {model_path}")
+                loaded = True
+            except Exception as cuda_err:
+                _log(f"[AI-MODEL] CUDA loading failed or unavailable: {cuda_err}. Trying CPU fallback.")
+                
+            if not loaded:
+                try:
+                    self.session = ort.InferenceSession(
+                        model_path, 
+                        providers=['CPUExecutionProvider']
+                    )
+                    _log(f"[AI-MODEL] Loaded EfficientNet-B0 with CPU from {model_path}")
+                except Exception as cpu_err:
+                    _log(f"[AI-MODEL] Error loading ONNX model on CPU: {cpu_err}")
         else:
             _log(f"[AI-MODEL] WARNING: Model file not found at {model_path}")
 
