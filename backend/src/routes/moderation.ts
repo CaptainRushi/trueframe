@@ -4,6 +4,7 @@ import { existsSync, unlinkSync, writeFileSync } from 'fs';
 import { supabase } from '../supabase.js';
 import { runAIScript } from '../lib/ai-runner.js';
 import { updateProfileTrustScore, trackDeepfakeAlert } from '../lib/trust.js';
+import { getAiServicePath } from '../lib/paths.js';
 
 /**
  * Trigger secondary AI review for a post.
@@ -44,7 +45,7 @@ export async function triggerSecondaryReview(postId: string) {
     writeFileSync(tempPath, buffer);
 
     // Run secondary AI analysis
-    const aiScriptPath = join(process.cwd(), '..', 'ai_service', 'secondary_review.py');
+    const aiScriptPath = getAiServicePath('secondary_review.py');
     const result = await runAIScript(aiScriptPath, [tempPath], 120000);
 
     const secondaryScore = result.secondary_score ?? 0;

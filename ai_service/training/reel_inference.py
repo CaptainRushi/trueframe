@@ -71,16 +71,20 @@ class ReelInferenceEngine:
         try:
             import onnxruntime as ort
 
-            providers = ["CPUExecutionProvider"]
+            loaded = False
             try:
                 if ort.get_device() == "GPU":
-                    providers.insert(0, "CUDAExecutionProvider")
-            except Exception:
-                pass
+                    self.session = ort.InferenceSession(path, providers=["CUDAExecutionProvider"])
+                    self.model_type = "onnx"
+                    logger.info(f"ONNX model loaded with CUDA: {path}")
+                    loaded = True
+            except Exception as cuda_err:
+                logger.warning(f"ONNX CUDA load failed: {cuda_err}. Trying CPU fallback.")
 
-            self.session = ort.InferenceSession(path, providers=providers)
-            self.model_type = "onnx"
-            logger.info(f"ONNX model loaded: {path}")
+            if not loaded:
+                self.session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+                self.model_type = "onnx"
+                logger.info(f"ONNX model loaded with CPU: {path}")
         except Exception as e:
             logger.warning(f"ONNX load failed: {e}")
             self.session = None

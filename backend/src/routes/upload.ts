@@ -8,6 +8,7 @@ import { pipeline } from 'stream';
 import { supabase } from '../supabase.js';
 import { updateProfileTrustScore, trackDeepfakeAlert } from '../lib/trust.js';
 import { runAIScript, getPythonCommand } from '../lib/ai-runner.js';
+import { getAiServicePath } from '../lib/paths.js';
 
 const pump = promisify(pipeline);
 
@@ -128,8 +129,8 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       const mimeType = data.mimetype || 'application/octet-stream';
       const isVideo = mimeType.startsWith('video');
       const primaryEngineFile = isVideo ? 'training/reel_inference.py' : 'main.py';
-      const primaryEnginePath = join(process.cwd(), '..', 'ai_service', primaryEngineFile);
-      const fallbackEnginePath = isVideo ? join(process.cwd(), '..', 'ai_service', 'main.py') : null;
+      const primaryEnginePath = getAiServicePath(primaryEngineFile);
+      const fallbackEnginePath = isVideo ? getAiServicePath('main.py') : null;
 
       let mediaResult: any;
       let usedFallback = false;
@@ -227,7 +228,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 
       // --- 3. FAKE NEWS DETECTION (If Media Passed or Under Review) ---
       if (deepfakeVerdict === 'APPROVED' || deepfakeVerdict === 'UNDER_REVIEW') {
-        const contextEnginePath = join(process.cwd(), '..', 'ai_service', 'context_verify.py');
+        const contextEnginePath = getAiServicePath('context_verify.py');
         let contextResult;
         try {
           contextResult = await runContextVerification(contextEnginePath, caption, tempPath);
