@@ -329,7 +329,7 @@ def analyze(file_path):
 
     # Face crops
     crops     = _get_face_crops(frames)
-    has_faces = len(crops) >= 2
+    has_faces = len(crops) >= (2 if video else 1)
 
     # ── Run signals ────────────────────────────────────
     raw = {}

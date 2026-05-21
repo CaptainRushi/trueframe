@@ -1,0 +1,14 @@
+# ===== TrueFrame AI Service Training & Ensemble Dependencies =====
+
+# Deep Learning
+torch
+torchvision
+transformers
+onnxruntime
+
+# Face Detection (Advanced)
+mediapipe
+
+# Training Pipeline
+albumentations>=1.3.0
+scikit-learn>=1.2.0
