@@ -1,4 +1,4 @@
-# ===== TrueFrame AI Service Dependencies =====
+# ===== TrueFrame AI Service Production Dependencies =====
 
 # Core
 numpy
@@ -7,21 +7,4 @@ scipy
 Pillow
 requests
 tenacity
-
-# Deep Learning
-torch
-torchvision
-transformers
-onnxruntime
-
-# Face Detection
-mediapipe
 scikit-image
-
-# Training Pipeline
-albumentations>=1.3.0
-scikit-learn>=1.2.0
-
-# Logging & Visualization (optional)
-# tensorboard
-# matplotlib

@@ -28,8 +28,8 @@ import cv2
 sys.path.append(os.path.dirname(os.path.dirname(__file__)) if os.path.basename(os.path.dirname(__file__)) == 'ai_service' else os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__)))
 
-from core.detector import FaceAnalyzer
-from core.models import HuggingFaceDeepfakeDetector
+from ai_core.detector import FaceAnalyzer
+from ai_core.models import HuggingFaceDeepfakeDetector
 
 def _log(msg):
     print(msg, file=sys.stderr)

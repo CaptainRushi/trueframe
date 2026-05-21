@@ -8,10 +8,10 @@ import json
 # Ensure we can import from core
 sys.path.append(os.path.dirname(__file__))
 
-from main import DeepfakeGuardProcess
+from main import analyze, _is_video
+from training.reel_inference import analyze_video
 
 app = FastAPI(title="Trueframe AI Detection Service")
-guard = DeepfakeGuardProcess()
 
 # Ensure temp directory exists
 TEMP_DIR = "temp_uploads"
@@ -19,7 +19,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "online", "model": "efficientnet+huggingface-ensemble"}
+    return {"status": "online", "model": "trueframe-signal-analyzer"}
 
 @app.post("/verify")
 async def verify_media(file: UploadFile = File(...)):
@@ -37,7 +37,10 @@ async def verify_media(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
         
         # Run detection
-        report = guard.run(temp_path)
+        if _is_video(temp_path):
+            report = analyze_video(temp_path)
+        else:
+            report = analyze(temp_path)
         
         return report
         

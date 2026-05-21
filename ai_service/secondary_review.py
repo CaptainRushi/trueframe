@@ -25,7 +25,7 @@ import cv2
 sys.path.append(os.path.dirname(__file__))
 
 from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
-from core.detector import FaceAnalyzer
+from ai_core.detector import FaceAnalyzer
 
 # Secondary review weights (different from primary)
 WEIGHT_FREQUENCY = 0.30
