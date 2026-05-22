@@ -222,23 +222,32 @@ export async function profileRoutes(fastify: FastifyInstance) {
 
             // Prepare independent queries
             const authHeader = request.headers.authorization;
-
-            const fetchFollowStatus = async () => {
-                if (!authHeader) return false;
+            let requestUserId: string | null = null;
+            if (authHeader) {
                 try {
                     const token = authHeader.replace('Bearer ', '');
                     const { data: { user } } = await supabase.auth.getUser(token);
-                    if (user && user.id !== userId) {
+                    if (user) {
+                        requestUserId = user.id;
+                    }
+                } catch (e) {
+                    // ignore invalid token for public profile fetch
+                }
+            }
+
+            const fetchFollowStatus = async () => {
+                if (requestUserId && requestUserId !== userId) {
+                    try {
                         const { data: follow } = await supabase
                             .from('follows')
                             .select('id')
-                            .eq('follower_id', user.id)
+                            .eq('follower_id', requestUserId)
                             .eq('following_id', userId)
                             .single();
                         return !!follow;
+                    } catch (e) {
+                        return false;
                     }
-                } catch (e) {
-                    return false;
                 }
                 return false;
             };
@@ -255,11 +264,17 @@ export async function profileRoutes(fastify: FastifyInstance) {
                 .eq('user_id', userId)
                 .in('final_verdict', ['REAL', 'APPROVED']);
 
-            // Limit posts to 50 for performance
-            const fetchPosts = supabase
+            // Limit posts to 50 for performance - filter by visibility if not the profile owner
+            let postsQuery = supabase
                 .from('posts')
                 .select('*')
-                .eq('user_id', userId)
+                .eq('user_id', userId);
+
+            if (requestUserId !== userId) {
+                postsQuery = postsQuery.eq('visibility', 'PUBLIC');
+            }
+
+            const fetchPosts = postsQuery
                 .order('created_at', { ascending: false })
                 .limit(50);
 

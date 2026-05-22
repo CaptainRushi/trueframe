@@ -212,13 +212,8 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         compression_score: mediaResult.compression_score ?? 0
       };
 
-      if (mediaResult.verdict === 'APPROVED') {
+      if (mediaResult.verdict === 'APPROVED' || mediaResult.verdict === 'UNDER_REVIEW') {
         deepfakeVerdict = 'APPROVED';
-      } else if (mediaResult.verdict === 'UNDER_REVIEW') {
-        deepfakeVerdict = 'UNDER_REVIEW';
-        const sigs = mediaResult.signals || [];
-        const reasons = Array.isArray(sigs) ? sigs : [];
-        finalReason = reasons.join(', ') || 'Content flagged for review';
       } else {
         deepfakeVerdict = 'REJECTED';
         const sigs = mediaResult.signals || [];

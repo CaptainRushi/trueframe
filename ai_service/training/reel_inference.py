@@ -391,13 +391,6 @@ def _build_result(prob, signals, start_time, raw_scores=None):
         confidence = "HIGH"
         if "deepfake_detected" not in signals:
             signals.append("deepfake_detected")
-    elif prob >= THRESHOLD_REVIEW:
-        verdict    = "UNDER_REVIEW"
-        confidence = "MEDIUM"
-        signals.append("borderline_needs_review")
-    elif prob >= THRESHOLD_APPROVE:
-        verdict    = "UNDER_REVIEW"
-        confidence = "LOW"
     else:
         verdict    = "APPROVED"
         confidence = "HIGH"

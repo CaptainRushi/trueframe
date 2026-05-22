@@ -436,10 +436,6 @@ def _build_result(model_score, artifact_score, temporal_score,
         verdict = "REJECTED"
         if "deepfake_detected" not in signals:
             signals.append("synthetic_generation_signal")
-    elif final_score >= THRESHOLD_APPROVE:
-        verdict = "UNDER_REVIEW"
-        if "needs_review" not in signals:
-            signals.append("borderline_score_needs_review")
     else:
         verdict = "APPROVED"
 
