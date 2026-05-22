@@ -20,7 +20,8 @@ import {
   UserCheck,
   Users,
   Heart,
-  MessageCircle
+  MessageCircle,
+  Clock
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AuthenticityTimeline } from "@/components/profile/AuthenticityTimeline";
@@ -705,6 +706,12 @@ export default function Profile() {
                     className="aspect-square bg-muted rounded-xl overflow-hidden relative group cursor-pointer"
                   >
                     <img src={post.media_url} alt="" loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                    {isOwner && post.visibility === 'UNDER_REVIEW' && (
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-1 rounded bg-amber-500/80 backdrop-blur text-white text-[10px] font-semibold uppercase tracking-wider shadow-sm">
+                        <Clock className="w-3 h-3 animate-pulse" />
+                        <span>Reviewing</span>
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4">
                       {post.caption && (
                         <p className="text-white text-xs text-center line-clamp-2 mb-4">{post.caption}</p>
@@ -742,6 +749,12 @@ export default function Profile() {
                     className="aspect-[9/16] bg-muted rounded-xl overflow-hidden relative group cursor-pointer"
                   >
                     <video src={reel.media_url} preload="metadata" className="w-full h-full object-cover" />
+                    {isOwner && reel.visibility === 'UNDER_REVIEW' && (
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-2 py-1 rounded bg-amber-500/80 backdrop-blur text-white text-[10px] font-semibold uppercase tracking-wider shadow-sm">
+                        <Clock className="w-3 h-3 animate-pulse" />
+                        <span>Reviewing</span>
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
                       <div className="w-8 h-8 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                         <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-white border-b-[6px] border-b-transparent ml-1" />
@@ -999,8 +1012,17 @@ export default function Profile() {
                   <div>
                     <h4 className="font-bold text-sm">{profile?.username}</h4>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <ShieldCheck className="w-3 h-3 text-verified" />
-                      <span>Verified Authentic</span>
+                      {selectedPost.visibility === 'UNDER_REVIEW' ? (
+                        <>
+                          <Clock className="w-3 h-3 text-amber-500 animate-pulse" />
+                          <span className="text-amber-500 font-medium">Under Review</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-3 h-3 text-verified" />
+                          <span>Verified Authentic</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
