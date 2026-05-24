@@ -105,7 +105,7 @@ export function FlagModal({ postId, isOpen, onClose }: FlagModalProps) {
               <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-3 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-muted-foreground">
-                  Only users with a trust score of 70+ can flag content. False reports may impact your trust score.
+                  Flagging content triggers secondary AI reviews if supported by community consensus. False reports may impact your trust score.
                 </p>
               </div>
 
