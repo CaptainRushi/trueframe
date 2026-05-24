@@ -33,7 +33,7 @@ logger = logging.getLogger("trueframe.inference")
 # ─────────────────── THRESHOLDS ──────────────────────
 THRESHOLD_APPROVE = 0.40
 THRESHOLD_REVIEW  = 0.60
-THRESHOLD_REJECT  = 0.80
+THRESHOLD_REJECT  = 0.60
 
 MAX_FRAMES = 20
 FRAME_SIZE = (224, 224)
