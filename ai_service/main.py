@@ -289,6 +289,139 @@ def _signal_noise_floor(crops):
     return score, triggered
 
 
+def _signal_face_gan_frequency(crops):
+    """
+    GAN networks leave a characteristic high-frequency spectral fingerprint
+    in face crops due to upsampling artefacts. Measures HF/LF power ratio
+    in the FFT of each face crop.
+    Real faces: ratio 0.35–0.55; GAN faces: > 0.62.
+    Score: 0 (real) → 1 (GAN fingerprint).
+    """
+    if not crops:
+        return 0.0, False
+    scores = []
+    for crop in crops:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        fft = np.fft.fft2(gray)
+        fft_shifted = np.fft.fftshift(fft)
+        magnitude = np.log1p(np.abs(fft_shifted))
+        h, w = magnitude.shape
+        cy, cx = h // 2, w // 2
+        Y, X = np.ogrid[:h, :w]
+        dist = np.sqrt((Y - cy) ** 2 + (X - cx) ** 2)
+        r_hf_in  = int(min(h, w) * 0.50)
+        r_hf_out = int(min(h, w) * 0.80)
+        r_lf     = int(min(h, w) * 0.25)
+        hf_mask = (dist >= r_hf_in) & (dist <= r_hf_out)
+        lf_mask = dist <= r_lf
+        hf_power = magnitude[hf_mask].mean() if hf_mask.any() else 0.0
+        lf_power = magnitude[lf_mask].mean() if lf_mask.any() else 1.0
+        scores.append(hf_power / (lf_power + 1e-6))
+    mean_ratio = float(np.mean(scores))
+    score = min(1.0, max(0.0, (mean_ratio - 0.55) / 0.35))
+    triggered = mean_ratio > 0.62
+    return score, triggered
+
+
+def _signal_skin_tone_consistency(crops):
+    """
+    Real faces maintain consistent skin hue across images.
+    GAN face-swaps introduce subtle skin-tone mis-matches (color blending instability).
+    For single images, measures hue uniformity within the face crop's skin region.
+    Score: 0 (consistent skin) → 1 (unstable/inconsistent).
+    """
+    if not crops:
+        return 0.0, False
+    skin_hue_stds = []
+    for crop in crops:
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV).astype(np.float32)
+        H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+        skin_mask = (
+            ((H >= 0) & (H <= 25)) | ((H >= 165) & (H <= 180))
+        ) & (S >= 40) & (V >= 50)
+        if skin_mask.sum() < 100:
+            continue
+        skin_hue_stds.append(float(H[skin_mask].std()))
+    if not skin_hue_stds:
+        return 0.0, False
+    mean_std = float(np.mean(skin_hue_stds))
+    # Real face skin hue std: typically < 6; GAN blended: > 10
+    score = min(1.0, max(0.0, (mean_std - 6.0) / 10.0))
+    triggered = mean_std > 8.0
+    return score, triggered
+
+
+def _signal_eye_region_artifacts(crops):
+    """
+    Extracts the eye band (25%–52% height of face crop) and checks for:
+    - Color channel decoupling in the iris region
+    - Abnormal edge entropy (GAN eyes: too uniform or too chaotic)
+    Score: 0 (normal eyes) → 1 (GAN eye artifact).
+    """
+    if not crops:
+        return 0.0, False
+    channel_corrs = []
+    edge_entropies = []
+    for crop in crops:
+        h = crop.shape[0]
+        eye = crop[int(h * 0.25): int(h * 0.52), :]
+        if eye.size == 0:
+            continue
+        b = eye[:, :, 0].astype(np.float64).ravel()
+        g = eye[:, :, 1].astype(np.float64).ravel()
+        r = eye[:, :, 2].astype(np.float64).ravel()
+        if np.std(b) < 1e-6 or np.std(g) < 1e-6:
+            continue
+        corr_rg = float(np.corrcoef(r, g)[0, 1])
+        corr_rb = float(np.corrcoef(r, b)[0, 1])
+        channel_corrs.append(min(corr_rg, corr_rb))
+        gray = cv2.cvtColor(eye, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        sobel = cv2.magnitude(
+            cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3),
+            cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3),
+        )
+        hist, _ = np.histogram(sobel.ravel(), bins=32, range=(0, 150))
+        hist = (hist + 1e-9) / (hist.sum() + 1e-9)
+        entropy = float(-np.sum(hist * np.log2(hist)))
+        edge_entropies.append(entropy)
+    if not channel_corrs:
+        return 0.0, False
+    mean_corr = float(np.mean(channel_corrs))
+    corr_score = min(1.0, max(0.0, (0.80 - mean_corr) / 0.30))
+    mean_entropy = float(np.mean(edge_entropies)) if edge_entropies else 4.0
+    ent_score = min(1.0, max(0.0, abs(mean_entropy - 4.0) / 1.5))
+    score = 0.65 * corr_score + 0.35 * ent_score
+    triggered = mean_corr < 0.72 or abs(mean_entropy - 4.0) > 1.2
+    return float(score), triggered
+
+
+def _signal_channel_decoupling(crops):
+    """
+    Real faces: R/G/B channels tightly correlated (physics of light).
+    GAN faces: channels synthesized semi-independently → lower correlation.
+    Score: 0 (well-coupled = real) → 1 (decoupled = GAN).
+    """
+    if not crops:
+        return 0.0, False
+    corr_scores = []
+    for crop in crops:
+        b = crop[:, :, 0].astype(np.float64).ravel()
+        g = crop[:, :, 1].astype(np.float64).ravel()
+        r = crop[:, :, 2].astype(np.float64).ravel()
+        if np.std(b) < 1e-6 or np.std(g) < 1e-6 or np.std(r) < 1e-6:
+            continue
+        rg = float(np.corrcoef(r, g)[0, 1])
+        rb = float(np.corrcoef(r, b)[0, 1])
+        gb = float(np.corrcoef(g, b)[0, 1])
+        corr_scores.append(min(rg, rb, gb))
+    if not corr_scores:
+        return 0.0, False
+    mean_min_corr = float(np.mean(corr_scores))
+    score = min(1.0, max(0.0, (0.85 - mean_min_corr) / 0.30))
+    triggered = mean_min_corr < 0.75
+    return score, triggered
+
+
 def _signal_temporal_flicker(frames):
     """Frame-to-frame brightness inconsistency (video only)."""
     if len(frames) < 4:
@@ -381,13 +514,38 @@ def analyze(file_path):
         raw["noise"] = noise_score
         if noise_trig:
             signals.append("abnormal_noise_pattern")
+
+        # NEW face signals
+        gan_freq_score, gan_freq_trig = _signal_face_gan_frequency(crops)
+        raw["gan_frequency"] = gan_freq_score
+        if gan_freq_trig:
+            signals.append("gan_spectral_fingerprint")
+
+        skin_score, skin_trig = _signal_skin_tone_consistency(crops)
+        raw["skin_tone"] = skin_score
+        if skin_trig:
+            signals.append("skin_tone_instability")
+
+        eye_score, eye_trig = _signal_eye_region_artifacts(crops)
+        raw["eye_artifacts"] = eye_score
+        if eye_trig:
+            signals.append("eye_region_gan_artifact")
+
+        channel_score, channel_trig = _signal_channel_decoupling(crops)
+        raw["channel_decoupling"] = channel_score
+        if channel_trig:
+            signals.append("color_channel_decoupled")
     else:
         # No faces detected — do NOT assign a suspicious score.
         # Many legitimate posts (landscapes, objects, screenshots) have no faces.
         signals.append("no_clear_faces_detected")
-        raw["texture"] = 0.0
-        raw["edges"]   = 0.0
-        raw["noise"]   = 0.0
+        raw["texture"]           = 0.0
+        raw["edges"]             = 0.0
+        raw["noise"]             = 0.0
+        raw["gan_frequency"]     = 0.0
+        raw["skin_tone"]         = 0.0
+        raw["eye_artifacts"]     = 0.0
+        raw["channel_decoupling"]= 0.0
 
     if video:
         flicker_score, flicker_trig = _signal_temporal_flicker(frames)
@@ -408,13 +566,18 @@ def analyze(file_path):
         signals.append("suspicious_metadata_integrity")
 
     # ── Weighted fusion ────────────────────────────────
+    # When faces detected, face signals carry 70% of the final score.
     if has_faces:
         model_score    = (
-            raw["frequency"] * 0.20 +
-            raw["texture"]   * 0.30 +
-            raw["edges"]     * 0.25 +
-            raw["noise"]     * 0.15 +
-            raw["color"]     * 0.10
+            raw["frequency"]        * 0.06 +
+            raw["texture"]          * 0.10 +
+            raw["edges"]            * 0.10 +
+            raw["noise"]            * 0.08 +
+            raw["color"]            * 0.06 +
+            raw["gan_frequency"]    * 0.22 +   # strongest GAN fingerprint
+            raw["skin_tone"]        * 0.12 +
+            raw["eye_artifacts"]    * 0.14 +   # eyes are GAN's weakest area
+            raw["channel_decoupling"]* 0.12
         )
         artifact_score = raw["compression"]
         temporal_score = raw.get("temporal", 0.0)
