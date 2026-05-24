@@ -1,6 +1,7 @@
-# ===== TrueFrame AI Service Production Dependencies =====
+# ===== TrueFrame AI Service — Production Dependencies =====
+# Inference only (no training required at runtime)
 
-# Core
+# Core image/video processing
 numpy
 opencv-python
 scipy
@@ -8,3 +9,12 @@ Pillow
 requests
 tenacity
 scikit-image
+
+# ONNX runtime for LightFakeDetect model inference (no GPU needed)
+onnxruntime>=1.16.0
+
+# Face detection — MTCNN (preferred) with MediaPipe as fallback
+# Install one of the following:
+#   pip install facenet-pytorch   ← MTCNN (recommended, most accurate)
+#   pip install mediapipe         ← fallback if MTCNN unavailable
+# Both are optional; Haar cascade fallback always available via OpenCV

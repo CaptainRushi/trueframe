@@ -1,14 +1,31 @@
-# ===== TrueFrame AI Service Training & Ensemble Dependencies =====
+# ===== TrueFrame AI Service — Training Dependencies =====
+# Install these to TRAIN the LightFakeDetect model.
+# Not needed for inference (onnxruntime only needed at runtime).
+#
+# Install:  pip install -r requirements-training.txt
 
-# Deep Learning
-torch
-torchvision
-transformers
-onnxruntime
+# Core training stack
+torch>=2.0.0
+torchvision>=0.15.0
 
-# Face Detection (Advanced)
-mediapipe
+# Face detection (MTCNN — primary detector for preprocessing)
+facenet-pytorch>=2.5.3
 
-# Training Pipeline
-albumentations>=1.3.0
-scikit-learn>=1.2.0
+# ONNX export & validation
+onnxruntime>=1.16.0
+
+# Image processing
+numpy
+opencv-python
+Pillow
+scikit-image       # SSIM for similarity-based frame filtering
+
+# Training utilities
+tqdm
+matplotlib
+seaborn
+pandas
+scikit-learn       # AUC-ROC, classification metrics
+
+# Optional: MediaPipe fallback detector
+# mediapipe>=0.10.0

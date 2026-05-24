@@ -1,24 +1,29 @@
 """
-TrueFrame AI Service — Simple Deepfake Detector
-=================================================
-Detects deepfake images and videos using signal analysis only.
-No ONNX model, no HuggingFace, no model files required.
-Works on any machine with OpenCV + NumPy installed.
+TrueFrame AI Service — Deepfake Detector (Images + Videos)
+============================================================
+Detection strategy: MODEL-FIRST with signal analysis fallback.
 
-Signals analysed:
-  1. Frequency artifacts  — GAN grid noise in DCT/FFT domain
-  2. Block artifacts      — 8×8 JPEG compression grid patterns
-  3. Face texture variance — unnatural smoothness or sharpness
-  4. Blending edge seam   — gradient discontinuities at face boundary
-  5. Noise floor          — abnormally low/inconsistent image noise
-  6. Color consistency    — abrupt hue/white-balance shifts (video)
-  7. Temporal flicker     — frame-to-frame brightness jumps (video)
-  8. Metadata score       — lightweight header check
+Priority 1 — LightFakeDetect ONNX model (MobileNetV2 + CBAM + GRU):
+    Loads  ai_service/models/lightfakedetect.onnx  if present.
+    Runs MTCNN → normalize → ONNX inference → P(fake).
+    Trained on Celeb-DF / FF++ datasets.
+
+Priority 2 — Signal analysis fallback (always available):
+    Pure OpenCV + NumPy signal detectors.
+    Works on any machine without training.
+    Used when ONNX model is not yet available.
+
+Score fusion when both run:
+    final = 0.70 * model_score + 0.30 * signal_score
+
+Verdict:
+    final_score >= 0.80 → REJECTED (deepfake detected)
+    final_score <  0.80 → APPROVED (real content)
 
 Usage:
     python main.py <file_path>
 
-Output: JSON with scores and verdict (same schema as before).
+Output: JSON with scores and verdict.
 """
 
 import sys
@@ -29,20 +34,20 @@ import numpy as np
 import cv2
 
 # ─────────────────── CONFIG ──────────────────────────
+THRESHOLD_REJECT    = 0.80   # >= 0.80 → REJECTED
+THRESHOLD_APPROVE   = 0.80   # <  0.80 → APPROVED
+
+MAX_FRAMES          = 20
+FRAME_SIZE          = (224, 224)
+IMAGENET_MEAN       = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD        = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+# Signal analysis weights (fallback path)
 WEIGHT_MODEL        = 0.40
 WEIGHT_ARTIFACT     = 0.20
 WEIGHT_TEMPORAL     = 0.15
 WEIGHT_METADATA     = 0.10
 WEIGHT_COMPRESSION  = 0.15
-
-# Only content with final_score >= 0.80 is considered synthetic.
-# Real-world media (with natural JPEG compression, lighting variation, etc.)
-# typically scores well below 0.50 with these heuristics.
-THRESHOLD_APPROVE   = 0.80   # < 0.80 → APPROVED
-THRESHOLD_REJECT    = 0.80   # >= 0.80 → REJECTED
-
-MAX_FRAMES          = 20
-FRAME_SIZE          = (224, 224)
 
 
 # ─────────────────── HELPERS ─────────────────────────
@@ -58,8 +63,6 @@ def _is_video(path):
 
 def _load_image(path):
     img = cv2.imread(path)
-    if img is None:
-        return None
     return img
 
 
@@ -80,6 +83,131 @@ def _sample_video_frames(path, n=MAX_FRAMES):
     cap.release()
     return frames
 
+
+# ─────────────────── ONNX MODEL INFERENCE ────────────
+
+def _get_onnx_session():
+    """
+    Load the LightFakeDetect ONNX model if available.
+    Returns (session, model_dir) or (None, None).
+    """
+    try:
+        import onnxruntime as ort
+        model_dir = os.path.join(os.path.dirname(__file__), "models")
+        onnx_path = os.path.join(model_dir, "lightfakedetect.onnx")
+        if not os.path.exists(onnx_path):
+            return None, None
+        sess = ort.InferenceSession(
+            onnx_path,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        )
+        _log(f"[LightFakeDetect] ONNX model loaded from {onnx_path}")
+        return sess, model_dir
+    except Exception as e:
+        _log(f"[LightFakeDetect] ONNX load failed: {e}")
+        return None, None
+
+
+def _normalize_crop(face_bgr):
+    """BGR uint8 → float32 (3, 224, 224) normalized to ImageNet stats."""
+    face_bgr = cv2.resize(face_bgr, FRAME_SIZE)
+    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    normalized = (rgb - IMAGENET_MEAN) / IMAGENET_STD
+    return normalized.transpose(2, 0, 1)   # (3, 224, 224)
+
+
+def _detect_face(frame):
+    """Detect and return the largest face crop from a frame."""
+    # Try MTCNN first (facenet-pytorch)
+    try:
+        from facenet_pytorch import MTCNN
+        import torch
+        mtcnn = MTCNN(
+            image_size=224, margin=20, min_face_size=40,
+            keep_all=False, post_process=False,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        from PIL import Image
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil = Image.fromarray(rgb)
+        face_t = mtcnn(pil)
+        if face_t is not None:
+            face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+            return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+    except Exception:
+        pass
+
+    # MediaPipe fallback
+    try:
+        import mediapipe as mp
+        det = mp.solutions.face_detection.FaceDetection(
+            model_selection=1, min_detection_confidence=0.4
+        )
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        res = det.process(rgb)
+        if res.detections:
+            best = max(res.detections, key=lambda d: d.score[0])
+            bbox = best.location_data.relative_bounding_box
+            fh, fw = frame.shape[:2]
+            px = bbox.width * 0.15
+            py = bbox.height * 0.15
+            x1 = max(0, int((bbox.xmin - px) * fw))
+            y1 = max(0, int((bbox.ymin - py) * fh))
+            x2 = min(fw, int((bbox.xmin + bbox.width + px) * fw))
+            y2 = min(fh, int((bbox.ymin + bbox.height + py) * fh))
+            if x2 - x1 >= 32 and y2 - y1 >= 32:
+                return frame[y1:y2, x1:x2]
+    except Exception:
+        pass
+
+    # Haar cascade fallback
+    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    cascade = cv2.CascadeClassifier(cascade_path)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    for nb in [3, 2]:
+        faces = cascade.detectMultiScale(gray, 1.05, nb, minSize=(32, 32))
+        if len(faces) > 0:
+            x, y, w, h = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
+            pad = int(min(w, h) * 0.15)
+            return frame[max(0, y-pad):min(frame.shape[0], y+h+pad),
+                         max(0, x-pad):min(frame.shape[1], x+w+pad)]
+    return None
+
+
+def _run_onnx_inference(sess, frames):
+    """
+    Run LightFakeDetect ONNX inference on a list of frames.
+
+    Extracts face crops from frames, normalizes, and feeds the sequence
+    through the GRU to get P(fake).
+
+    Returns float P(fake) in [0, 1], or None if inference fails.
+    """
+    try:
+        crops = []
+        for frame in frames:
+            face = _detect_face(frame)
+            if face is None:
+                bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
+                face = _detect_face(bright)
+            if face is not None and face.size > 0:
+                crops.append(_normalize_crop(face))
+
+        if len(crops) < 1:
+            return None   # No faces detected — can't use model
+
+        # Stack into (1, T, 3, 224, 224)
+        seq = np.stack(crops, axis=0)[np.newaxis].astype(np.float32)
+        input_name = sess.get_inputs()[0].name
+        output = sess.run(None, {input_name: seq})
+        prob = float(output[0][0])
+        return float(np.clip(prob, 0.0, 1.0))
+    except Exception as e:
+        _log(f"[LightFakeDetect] ONNX inference error: {e}")
+        return None
+
+
+# ─────────────────── SIGNAL DETECTORS (fallback) ─────
 
 def _detect_faces_haar(frame):
     cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -122,7 +250,6 @@ def _get_face_crops(frames):
                     continue
             except Exception:
                 pass
-        # Haar fallback
         haar_crops = _detect_faces_haar(frame)
         for c in haar_crops:
             if c.shape[0] >= 32 and c.shape[1] >= 32:
@@ -130,15 +257,7 @@ def _get_face_crops(frames):
     return crops
 
 
-# ─────────────────── SIGNAL DETECTORS ────────────────
-
 def _signal_frequency_artifacts(frames):
-    """
-    GAN generators leave characteristic periodic noise in frequency domain.
-    Measure power in mid-high frequency bands via 2D FFT.
-    Score: 0 (natural) → 1 (suspicious).
-    Real photos typically score 0.0; GAN images score > 0.6.
-    """
     if not frames:
         return 0.0, False
     scores = []
@@ -149,10 +268,8 @@ def _signal_frequency_artifacts(frames):
         magnitude = np.log1p(np.abs(fft_shifted))
         h, w = magnitude.shape
         cy, cx = h // 2, w // 2
-        # High-frequency annular band: 40% – 70% of Nyquist (where GAN artifacts appear)
         r_inner = int(min(h, w) * 0.40)
         r_outer = int(min(h, w) * 0.70)
-        # Low-frequency reference band: 0% – 20%
         r_ref = int(min(h, w) * 0.20)
         Y, X = np.ogrid[:h, :w]
         dist = np.sqrt((Y - cy) ** 2 + (X - cx) ** 2)
@@ -160,28 +277,21 @@ def _signal_frequency_artifacts(frames):
         ref_mask = dist <= r_ref
         hf_power  = magnitude[hf_mask].mean()
         ref_power = magnitude[ref_mask].mean()
-        # GAN images have unnaturally HIGH high-frequency power relative to low-freq
         ratio = hf_power / (ref_power + 1e-6)
         scores.append(ratio)
     mean_ratio = float(np.mean(scores))
-    # Real photos: ratio typically 0.4–0.7; GAN images: > 0.85
     score = min(1.0, max(0.0, (mean_ratio - 0.75) / 0.30))
     triggered = mean_ratio > 0.85
     return score, triggered
 
 
 def _signal_block_artifacts(frames):
-    """Detect 8×8 DCT block grid from re-encoding.
-    NOTE: All JPEGs have some DCT blocking — we only flag extremely severe cases
-    where block variance is an outlier, not normal camera JPEG artifacts.
-    """
     if not frames:
         return 0.0, False
     scores = []
     for frame in frames:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
         h, w = gray.shape
-        # Measure 8-pixel column periodicity
         cols = gray[:, :w - (w % 8)]
         if cols.shape[1] < 8:
             scores.append(0.0)
@@ -191,18 +301,12 @@ def _signal_block_artifacts(frames):
         pixel_var = float(np.var(gray))
         scores.append(block_var / (pixel_var + 1e-6))
     mean_ratio = float(np.mean(scores))
-    # Raise threshold: normal camera JPEGs score 0.05–0.35;
-    # deeply re-encoded fakes score > 0.50
     score = min(1.0, max(0.0, (mean_ratio - 0.35) / 0.40))
     triggered = mean_ratio > 0.45
     return score, triggered
 
 
 def _signal_face_texture(crops):
-    """Unnatural face smoothness or sharpness via Laplacian variance.
-    Real faces: 100 < mean_var < 6000 (wide range due to focus, lighting).
-    GAN faces: often < 30 (unnaturally smooth) or > 15000 (artefact sharpening).
-    """
     if not crops:
         return 0.0, False
     variances = []
@@ -212,7 +316,6 @@ def _signal_face_texture(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    # Tightened to only flag extreme outliers
     too_smooth   = mean_var < 30.0
     too_sharp    = mean_var > 15000.0
     unstable     = std_var / (mean_var + 1.0) > 2.5
@@ -229,7 +332,6 @@ def _signal_face_texture(crops):
 
 
 def _signal_blending_edges(crops):
-    """GAN face-paste seam: border gradient vs interior ratio."""
     if not crops:
         return 0.0, False
     edge_ratios = []
@@ -242,10 +344,8 @@ def _signal_blending_edges(crops):
         h, w = sobel.shape
         bw = max(8, int(min(h, w) * 0.10))
         border = np.concatenate([
-            sobel[:bw, :].ravel(),
-            sobel[-bw:, :].ravel(),
-            sobel[:, :bw].ravel(),
-            sobel[:, -bw:].ravel(),
+            sobel[:bw, :].ravel(), sobel[-bw:, :].ravel(),
+            sobel[:, :bw].ravel(), sobel[:, -bw:].ravel(),
         ])
         interior = sobel[bw:-bw, bw:-bw].ravel()
         if interior.size == 0:
@@ -262,11 +362,6 @@ def _signal_blending_edges(crops):
 
 
 def _signal_noise_floor(crops):
-    """Gaussian residual noise — GAN faces are too clean.
-    Real faces after JPEG compression: mean_noise typically 0.8–3.5.
-    GAN faces: often < 0.5 (too clean after post-processing).
-    We use a much stricter threshold to avoid false-positives on real images.
-    """
     if not crops:
         return 0.0, False
     noise_levels = []
@@ -276,7 +371,6 @@ def _signal_noise_floor(crops):
         noise_levels.append(float(np.mean(np.abs(gray - blurred))))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    # Only flag truly extreme values that real cameras never produce
     too_clean    = mean_noise < 0.4
     inconsistent = std_noise / (mean_noise + 1e-6) > 1.5
     triggered = too_clean or inconsistent
@@ -290,13 +384,6 @@ def _signal_noise_floor(crops):
 
 
 def _signal_face_gan_frequency(crops):
-    """
-    GAN networks leave a characteristic high-frequency spectral fingerprint
-    in face crops due to upsampling artefacts. Measures HF/LF power ratio
-    in the FFT of each face crop.
-    Real faces: ratio 0.35–0.55; GAN faces: > 0.62.
-    Score: 0 (real) → 1 (GAN fingerprint).
-    """
     if not crops:
         return 0.0, False
     scores = []
@@ -324,12 +411,6 @@ def _signal_face_gan_frequency(crops):
 
 
 def _signal_skin_tone_consistency(crops):
-    """
-    Real faces maintain consistent skin hue across images.
-    GAN face-swaps introduce subtle skin-tone mis-matches (color blending instability).
-    For single images, measures hue uniformity within the face crop's skin region.
-    Score: 0 (consistent skin) → 1 (unstable/inconsistent).
-    """
     if not crops:
         return 0.0, False
     skin_hue_stds = []
@@ -345,19 +426,12 @@ def _signal_skin_tone_consistency(crops):
     if not skin_hue_stds:
         return 0.0, False
     mean_std = float(np.mean(skin_hue_stds))
-    # Real face skin hue std: typically < 6; GAN blended: > 10
     score = min(1.0, max(0.0, (mean_std - 6.0) / 10.0))
     triggered = mean_std > 8.0
     return score, triggered
 
 
 def _signal_eye_region_artifacts(crops):
-    """
-    Extracts the eye band (25%–52% height of face crop) and checks for:
-    - Color channel decoupling in the iris region
-    - Abnormal edge entropy (GAN eyes: too uniform or too chaotic)
-    Score: 0 (normal eyes) → 1 (GAN eye artifact).
-    """
     if not crops:
         return 0.0, False
     channel_corrs = []
@@ -396,11 +470,6 @@ def _signal_eye_region_artifacts(crops):
 
 
 def _signal_channel_decoupling(crops):
-    """
-    Real faces: R/G/B channels tightly correlated (physics of light).
-    GAN faces: channels synthesized semi-independently → lower correlation.
-    Score: 0 (well-coupled = real) → 1 (decoupled = GAN).
-    """
     if not crops:
         return 0.0, False
     corr_scores = []
@@ -423,7 +492,6 @@ def _signal_channel_decoupling(crops):
 
 
 def _signal_temporal_flicker(frames):
-    """Frame-to-frame brightness inconsistency (video only)."""
     if len(frames) < 4:
         return 0.0, False
     brightnesses = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).mean() for f in frames]
@@ -436,7 +504,6 @@ def _signal_temporal_flicker(frames):
 
 
 def _signal_color_consistency(frames):
-    """Hue temperature shifts across frames (video only)."""
     if len(frames) < 4:
         return 0.0, False
     hue_means = []
@@ -452,10 +519,8 @@ def _signal_color_consistency(frames):
 
 
 def _signal_metadata(path):
-    """Lightweight file-header based metadata score."""
     try:
         size = os.path.getsize(path)
-        # Suspiciously small file for its type
         if _is_video(path) and size < 50_000:
             return 0.3, True
         if not _is_video(path) and size < 2_000:
@@ -465,28 +530,11 @@ def _signal_metadata(path):
     return 0.0, False
 
 
-# ─────────────────── MAIN ANALYSIS ───────────────────
+# ─────────────────── SIGNAL ANALYSIS ENGINE ──────────
 
-def analyze(file_path):
-    start_time = time.time()
-    signals    = []
-
-    video = _is_video(file_path)
-
-    if video:
-        frames = _sample_video_frames(file_path, n=MAX_FRAMES)
-    else:
-        img = _load_image(file_path)
-        frames = [img] if img is not None else []
-
-    if not frames:
-        return _build_result(0.1, 0.0, 0.0, 0.0, 0.0, ["media_decode_error"], start_time)
-
-    # Face crops
-    crops     = _get_face_crops(frames)
-    has_faces = len(crops) >= (2 if video else 1)
-
-    # ── Run signals ────────────────────────────────────
+def _run_signal_analysis(file_path, frames, crops, has_faces, video):
+    """Run all signal detectors. Returns (final_score, signals, raw_scores)."""
+    signals = []
     raw = {}
 
     freq_score, freq_trig = _signal_frequency_artifacts(frames)
@@ -515,7 +563,6 @@ def analyze(file_path):
         if noise_trig:
             signals.append("abnormal_noise_pattern")
 
-        # NEW face signals
         gan_freq_score, gan_freq_trig = _signal_face_gan_frequency(crops)
         raw["gan_frequency"] = gan_freq_score
         if gan_freq_trig:
@@ -536,16 +583,10 @@ def analyze(file_path):
         if channel_trig:
             signals.append("color_channel_decoupled")
     else:
-        # No faces detected — do NOT assign a suspicious score.
-        # Many legitimate posts (landscapes, objects, screenshots) have no faces.
         signals.append("no_clear_faces_detected")
-        raw["texture"]           = 0.0
-        raw["edges"]             = 0.0
-        raw["noise"]             = 0.0
-        raw["gan_frequency"]     = 0.0
-        raw["skin_tone"]         = 0.0
-        raw["eye_artifacts"]     = 0.0
-        raw["channel_decoupling"]= 0.0
+        for k in ["texture", "edges", "noise", "gan_frequency",
+                  "skin_tone", "eye_artifacts", "channel_decoupling"]:
+            raw[k] = 0.0
 
     if video:
         flicker_score, flicker_trig = _signal_temporal_flicker(frames)
@@ -565,31 +606,28 @@ def analyze(file_path):
     if meta_trig:
         signals.append("suspicious_metadata_integrity")
 
-    # ── Weighted fusion ────────────────────────────────
-    # When faces detected, face signals carry 70% of the final score.
     if has_faces:
-        model_score    = (
-            raw["frequency"]        * 0.06 +
-            raw["texture"]          * 0.10 +
-            raw["edges"]            * 0.10 +
-            raw["noise"]            * 0.08 +
-            raw["color"]            * 0.06 +
-            raw["gan_frequency"]    * 0.22 +   # strongest GAN fingerprint
-            raw["skin_tone"]        * 0.12 +
-            raw["eye_artifacts"]    * 0.14 +   # eyes are GAN's weakest area
+        model_score = (
+            raw["frequency"]         * 0.06 +
+            raw["texture"]           * 0.10 +
+            raw["edges"]             * 0.10 +
+            raw["noise"]             * 0.08 +
+            raw["color"]             * 0.06 +
+            raw["gan_frequency"]     * 0.22 +
+            raw["skin_tone"]         * 0.12 +
+            raw["eye_artifacts"]     * 0.14 +
             raw["channel_decoupling"]* 0.12
         )
-        artifact_score = raw["compression"]
-        temporal_score = raw.get("temporal", 0.0)
     else:
-        model_score    = (
+        model_score = (
             raw["frequency"] * 0.50 +
             raw["texture"]   * 0.10 +
             raw["color"]     * 0.20 +
             raw.get("temporal", 0.0) * 0.20
         )
-        artifact_score = raw["compression"]
-        temporal_score = raw.get("temporal", 0.0)
+
+    artifact_score = raw["compression"]
+    temporal_score = raw.get("temporal", 0.0)
 
     final_score = (
         WEIGHT_MODEL       * model_score    +
@@ -600,15 +638,76 @@ def analyze(file_path):
     )
     final_score = float(np.clip(final_score, 0.0, 1.0))
 
+    return final_score, signals, raw
+
+
+# ─────────────────── MAIN ANALYSIS ───────────────────
+
+def analyze(file_path):
+    start_time = time.time()
+    signals    = []
+
+    video = _is_video(file_path)
+
+    if video:
+        frames = _sample_video_frames(file_path, n=MAX_FRAMES)
+    else:
+        img = _load_image(file_path)
+        frames = [img] if img is not None else []
+
+    if not frames:
+        return _build_result(0.1, 0.0, 0.0, 0.0, 0.0,
+                             ["media_decode_error"], start_time)
+
+    crops     = _get_face_crops(frames)
+    has_faces = len(crops) >= (2 if video else 1)
+
+    # ── Priority 1: LightFakeDetect ONNX model ─────────
+    onnx_sess, _ = _get_onnx_session()
+    onnx_score   = None
+
+    if onnx_sess is not None:
+        onnx_score = _run_onnx_inference(onnx_sess, frames)
+        if onnx_score is not None:
+            _log(f"[LightFakeDetect] model P(fake)={onnx_score:.4f}")
+            signals.append("lightfakedetect_model_used")
+
+    # ── Priority 2: Signal analysis (always run) ───────
+    signal_score, signal_signals, raw = _run_signal_analysis(
+        file_path, frames, crops, has_faces, video
+    )
+    signals.extend(signal_signals)
+
+    # ── Score fusion ────────────────────────────────────
+    if onnx_score is not None:
+        # Both available: model-weighted fusion
+        final_score = 0.70 * onnx_score + 0.30 * signal_score
+        _log(f"[LightFakeDetect] fused score={final_score:.4f} "
+             f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
+    else:
+        # Fallback to signal analysis only
+        final_score = signal_score
+        signals.append("signal_analysis_fallback")
+        _log(f"[SignalAnalysis] fallback score={final_score:.4f}")
+
+    final_score = float(np.clip(final_score, 0.0, 1.0))
+
     return _build_result(
-        model_score, artifact_score, temporal_score,
-        meta_score, raw["compression"], signals, start_time, final_score
+        raw.get("frequency", 0.0),
+        raw["compression"],
+        raw.get("temporal", 0.0),
+        0.0,
+        raw["compression"],
+        signals,
+        start_time,
+        final_score,
+        onnx_score,
     )
 
 
 def _build_result(model_score, artifact_score, temporal_score,
                   metadata_score, compression_score, signals,
-                  start_time, final_score=None):
+                  start_time, final_score=None, onnx_score=None):
     if final_score is None:
         final_score = (
             WEIGHT_MODEL       * model_score    +
@@ -625,11 +724,11 @@ def _build_result(model_score, artifact_score, temporal_score,
             signals.append("synthetic_generation_signal")
     else:
         verdict = "APPROVED"
-        # Ensure no lingering REJECTED/UNDER_REVIEW state
-        signals = [s for s in signals if s not in ("synthetic_generation_signal", "deepfake_detected")]
+        signals = [s for s in signals if s not in
+                   ("synthetic_generation_signal", "deepfake_detected")]
 
-    return {
-        "model":             "trueframe-signal-analyzer",
+    result = {
+        "model":             "lightfakedetect-v2",
         "model_score":       round(float(model_score), 4),
         "artifact_score":    round(float(artifact_score), 4),
         "temporal_score":    round(float(temporal_score), 4),
@@ -639,6 +738,10 @@ def _build_result(model_score, artifact_score, temporal_score,
         "verdict":           verdict,
         "signals":           list(set(signals)),
     }
+    if onnx_score is not None:
+        result["onnx_model_score"] = round(float(onnx_score), 4)
+
+    return result
 
 
 # ─────────────────── ENTRY POINT ─────────────────────
@@ -646,15 +749,11 @@ def _build_result(model_score, artifact_score, temporal_score,
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({
-            "model":             "trueframe-signal-analyzer",
-            "model_score":       0.1,
-            "artifact_score":    0.0,
-            "temporal_score":    0.0,
-            "metadata_score":    0.0,
-            "compression_score": 0.0,
-            "final_score":       0.1,
-            "verdict":           "REJECTED",
-            "signals":           ["no_file_provided"],
+            "model": "lightfakedetect-v2",
+            "model_score": 0.1, "artifact_score": 0.0,
+            "temporal_score": 0.0, "metadata_score": 0.0,
+            "compression_score": 0.0, "final_score": 0.1,
+            "verdict": "REJECTED", "signals": ["no_file_provided"],
         }))
         sys.exit(0)
 
@@ -662,15 +761,12 @@ if __name__ == "__main__":
 
     if not os.path.exists(file_path):
         print(json.dumps({
-            "model":             "trueframe-signal-analyzer",
-            "model_score":       0.1,
-            "artifact_score":    0.0,
-            "temporal_score":    0.0,
-            "metadata_score":    0.0,
-            "compression_score": 0.0,
-            "final_score":       0.1,
-            "verdict":           "REJECTED",
-            "signals":           [f"file_not_found: {file_path}", "fail_closed"],
+            "model": "lightfakedetect-v2",
+            "model_score": 0.1, "artifact_score": 0.0,
+            "temporal_score": 0.0, "metadata_score": 0.0,
+            "compression_score": 0.0, "final_score": 0.1,
+            "verdict": "REJECTED",
+            "signals": [f"file_not_found: {file_path}", "fail_closed"],
         }))
         sys.exit(0)
 
@@ -680,14 +776,11 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as e:
         print(json.dumps({
-            "model":             "trueframe-signal-analyzer",
-            "model_score":       0.1,
-            "artifact_score":    0.0,
-            "temporal_score":    0.0,
-            "metadata_score":    0.0,
-            "compression_score": 0.0,
-            "final_score":       0.1,
-            "verdict":           "REJECTED",
-            "signals":           [f"engine_error: {str(e)}", "fail_closed"],
+            "model": "lightfakedetect-v2",
+            "model_score": 0.1, "artifact_score": 0.0,
+            "temporal_score": 0.0, "metadata_score": 0.0,
+            "compression_score": 0.0, "final_score": 0.1,
+            "verdict": "REJECTED",
+            "signals": [f"engine_error: {str(e)}", "fail_closed"],
         }))
         sys.exit(0)
