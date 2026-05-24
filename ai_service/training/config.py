@@ -69,8 +69,8 @@ class FrameExtractionConfig:
     # Maximum frames per video clip (for memory efficiency)
     MAX_FRAMES_PER_VIDEO: int = 32
 
-    # Sequence length fed to LSTM (key frames selected from extracted)
-    SEQUENCE_LENGTH: int = 10
+    # Sequence length fed to GRU (key frames selected after SSIM dedup)
+    SEQUENCE_LENGTH: int = 20
 
     # Frame sampling strategy: "uniform", "keyframe", "beginning_middle_end"
     SAMPLING_STRATEGY: str = "uniform"
@@ -93,37 +93,49 @@ class FrameExtractionConfig:
 
 @dataclass
 class ModelConfig:
-    """EfficientNet-B4 + LSTM model configuration."""
+    """
+    LightFakeDetect: MobileNetV2 + CBAM + GRU configuration.
+    Based on the MDPI LightFakeDetect paper architecture.
+    """
 
-    # CNN Backbone
-    BACKBONE: str = "efficientnet_b4"          # Feature extractor
-    BACKBONE_PRETRAINED: bool = True           # Use ImageNet weights
-    BACKBONE_FEATURE_DIM: int = 1792           # EfficientNet-B4 output dim
-    FREEZE_BACKBONE_EPOCHS: int = 5            # Freeze CNN for N epochs, then unfreeze
+    # CNN Backbone (MobileNetV2 — lightweight and fast)
+    BACKBONE: str = "mobilenet_v2"             # MobileNetV2 (was: efficientnet_b4)
+    BACKBONE_PRETRAINED: bool = True           # Use ImageNet pretrained weights
+    BACKBONE_FEATURE_DIM: int = 1280           # MobileNetV2 output dim (was: 1792)
+    FREEZE_BACKBONE_EPOCHS: int = 3            # Freeze CNN for N epochs, then fine-tune
 
-    # LSTM Temporal Encoder
+    # CBAM Attention Module
+    USE_CBAM: bool = True                      # Channel + Spatial attention
+    CBAM_REDUCTION_RATIO: int = 16             # Channel reduction ratio in CBAM
+    CBAM_SPATIAL_KERNEL: int = 7               # Spatial attention conv kernel size
+
+    # GRU Temporal Encoder (was: BiLSTM)
+    GRU_HIDDEN_DIM: int = 256                  # GRU hidden state dimension
+    GRU_NUM_LAYERS: int = 2                    # Number of stacked GRU layers
+    GRU_DROPOUT: float = 0.3                   # Dropout between GRU layers
+
+    # Keep for backwards compatibility
     LSTM_HIDDEN_DIM: int = 256
     LSTM_NUM_LAYERS: int = 2
     LSTM_DROPOUT: float = 0.3
-    LSTM_BIDIRECTIONAL: bool = True
+    LSTM_BIDIRECTIONAL: bool = False           # GRU is unidirectional
 
     # Classification Head
     NUM_CLASSES: int = 2                       # [Real, Deepfake]
-    HEAD_DROPOUT: float = 0.5
+    HEAD_DROPOUT: float = 0.3                  # Dropout before final FC layer
 
-    # Auxiliary heads (multi-task learning)
-    USE_MANIPULATION_TYPE_HEAD: bool = True     # Predict manipulation type
+    # Multi-task (kept for schema compatibility, unused in LightFakeDetect)
+    USE_MANIPULATION_TYPE_HEAD: bool = False
     MANIPULATION_TYPES: List[str] = field(default_factory=lambda: [
         "real",
         "face_swap",
         "face_reenactment",
         "lip_sync",
         "ai_generated",
-        "neural_texture",
     ])
 
-    # Attention mechanism over temporal features
-    USE_TEMPORAL_ATTENTION: bool = True
+    # Temporal attention (not used in LightFakeDetect — GRU last state is used)
+    USE_TEMPORAL_ATTENTION: bool = False
 
 
 # ──────────────── TRAINING HYPERPARAMETERS ───────────

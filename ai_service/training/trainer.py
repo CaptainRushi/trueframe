@@ -1,12 +1,13 @@
 """
 TrueFrame Reels — Training Engine
 ====================================
-Full training loop with:
+Full training loop for LightFakeDetect (MobileNetV2 + CBAM + GRU):
   - Mixed-precision training (AMP)
   - Gradient accumulation
   - Cosine warmup LR scheduling
   - Early stopping
   - Backbone freeze/unfreeze schedule
+  - WeightedRandomSampler for class imbalance (real:fake ≈ 1:6.3 in Celeb-DF)
   - Comprehensive metric logging
   - Checkpoint saving
 """
@@ -414,8 +415,9 @@ class TrueFrameTrainer:
                 "best_metric": self.best_metric,
                 "config": {
                     "backbone": CONFIG.model.BACKBONE,
-                    "lstm_hidden": CONFIG.model.LSTM_HIDDEN_DIM,
-                    "lstm_layers": CONFIG.model.LSTM_NUM_LAYERS,
+                    "gru_hidden": CONFIG.model.GRU_HIDDEN_DIM,
+                    "gru_layers": CONFIG.model.GRU_NUM_LAYERS,
+                    "use_cbam": CONFIG.model.USE_CBAM,
                     "seq_length": CONFIG.frames.SEQUENCE_LENGTH,
                 },
             }, path)
@@ -502,7 +504,7 @@ def run_training(
     logger.info("=" * 70)
     logger.info("TrueFrame Reels — Deepfake Detection Model Training")
     logger.info("=" * 70)
-    logger.info(f"Config: {CONFIG.model.BACKBONE} + LSTM")
+    logger.info(f"Config: {CONFIG.model.BACKBONE} + CBAM + GRU")
     logger.info(f"Sequence length: {CONFIG.frames.SEQUENCE_LENGTH}")
     logger.info(f"Frame size: {CONFIG.frames.FRAME_SIZE}")
 
