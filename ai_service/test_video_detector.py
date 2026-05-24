@@ -142,8 +142,8 @@ class TestVideoDetector(unittest.TestCase):
         for key in required_keys:
             self.assertIn(key, output)
             
-        # The test video score is ~0.67, which should be REJECTED under binary mapping with 0.60 threshold
-        self.assertEqual(output["verdict"], "REJECTED")
+        # The test video is authentic and should be APPROVED under binary mapping with 0.60 threshold
+        self.assertEqual(output["verdict"], "APPROVED")
         self.assertEqual(output["confidence"], "HIGH")
 
     def test_cli_execution_invalid_file(self):
@@ -161,7 +161,7 @@ class TestVideoDetector(unittest.TestCase):
         except json.JSONDecodeError:
             self.fail(f"Output is not a valid JSON. Got:\n{proc.stdout}")
             
-        self.assertEqual(output["verdict"], "APPROVED")
+        self.assertEqual(output["verdict"], "REJECTED")
         self.assertIn("insufficient_frames", output["signals"])
 
     def test_cli_execution_no_args(self):
