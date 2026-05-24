@@ -38,16 +38,17 @@ class TestVideoDetector(unittest.TestCase):
                     self.blocky_frame[y:y+8, x:x+8] = 200
 
     def test_verdict_boundaries(self):
-        """Verify binary classification: score >= 0.80 rejected, score < 0.80 approved."""
+        """Verify binary classification: score >= 0.60 rejected, score < 0.60 approved."""
         # 1. Under-approve score (e.g. 0.35) -> APPROVED
         res_low = reel_inference._build_result(0.35, [], 0)
         self.assertEqual(res_low["verdict"], "APPROVED")
         self.assertEqual(res_low["confidence"], "HIGH")
         
-        # 2. Borderline score (e.g. 0.67) -> APPROVED (Previously UNDER_REVIEW)
+        # 2. Borderline score (e.g. 0.67) -> REJECTED (Previously APPROVED under 0.80 threshold)
         res_borderline = reel_inference._build_result(0.67, [], 0)
-        self.assertEqual(res_borderline["verdict"], "APPROVED")
+        self.assertEqual(res_borderline["verdict"], "REJECTED")
         self.assertEqual(res_borderline["confidence"], "HIGH")
+        self.assertIn("deepfake_detected", res_borderline["signals"])
         
         # 3. High score (e.g. 0.85) -> REJECTED
         res_high = reel_inference._build_result(0.85, [], 0)
@@ -141,8 +142,8 @@ class TestVideoDetector(unittest.TestCase):
         for key in required_keys:
             self.assertIn(key, output)
             
-        # The test video score is ~0.67, which should be APPROVED under binary mapping
-        self.assertEqual(output["verdict"], "APPROVED")
+        # The test video score is ~0.67, which should be REJECTED under binary mapping with 0.60 threshold
+        self.assertEqual(output["verdict"], "REJECTED")
         self.assertEqual(output["confidence"], "HIGH")
 
     def test_cli_execution_invalid_file(self):
