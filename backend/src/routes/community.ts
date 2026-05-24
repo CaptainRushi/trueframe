@@ -24,28 +24,24 @@ export async function communityRoutes(fastify: FastifyInstance) {
             const { data: { user }, error: authError } = await supabase.auth.getUser(token);
             if (authError || !user) return reply.code(401).send({ error: 'Invalid token' });
 
-            // Check trust score - only trusted users can flag
+            // Fetch profile for flag weight calculation
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('trust_score, is_community_verifier')
                 .eq('id', user.id)
                 .single();
 
-            if (!profile || (profile.trust_score < 70 && !profile.is_community_verifier)) {
-                return reply.code(403).send({
-                    error: 'Insufficient trust score',
-                    message: 'You need a trust score of 70+ or Community Verifier status to flag content'
-                });
-            }
+            const trustScore = profile?.trust_score ?? 50;
+            const isVerifier = profile?.is_community_verifier || false;
+
+            // Compute flag weight based on flagger's trust score (low score = low weight, but flag is saved)
+            const flagWeight = Math.max(0.05, trustScore / 100);
 
             // Validate flag type
             const validTypes = ['MISINFORMATION', 'MANIPULATED', 'OUT_OF_CONTEXT', 'SPAM', 'OTHER'];
             if (!validTypes.includes(flagType)) {
                 return reply.code(400).send({ error: 'Invalid flag type' });
             }
-
-            // Compute flag weight based on flagger's trust score
-            const flagWeight = Math.max(0.1, profile.trust_score / 100);
 
             // Insert flag with weight
             const { data: flag, error: flagError } = await supabase
