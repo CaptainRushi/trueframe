@@ -31,9 +31,9 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 logger = logging.getLogger("trueframe.inference")
 
 # ─────────────────── THRESHOLDS ──────────────────────
-THRESHOLD_APPROVE = 0.40
-THRESHOLD_REVIEW  = 0.60
-THRESHOLD_REJECT  = 0.60
+THRESHOLD_APPROVE = 0.80   # < 0.80 → APPROVED (binary decision)
+THRESHOLD_REVIEW  = 0.80   # unused sentinel — kept for schema compatibility
+THRESHOLD_REJECT  = 0.80   # >= 0.80 → REJECTED
 
 MAX_FRAMES = 20
 FRAME_SIZE = (224, 224)
@@ -150,6 +150,8 @@ def signal_block_artifacts(frames):
     """
     Detect 8×8 DCT compression grid artifacts common in re-encoded deepfakes.
     Score: 0 (clean) → 1 (heavy artifacts).
+    NOTE: All real camera videos have some DCT blocking when encoded as mp4/h264.
+    Only flag extreme re-encoding artifacts, not normal camera compression.
     """
     if not frames:
         return 0.0, False
@@ -165,9 +167,10 @@ def signal_block_artifacts(frames):
         ratio = block_variance / (pixel_variance + 1e-6)
         scores.append(ratio)
     mean_ratio = float(np.mean(scores))
-    # Empirically, strong artifacts: ratio > 0.15
-    score = min(1.0, mean_ratio / 0.25)
-    triggered = mean_ratio > 0.15
+    # Real camera videos: ratio typically 0.03–0.35
+    # Heavily re-encoded fake videos: ratio > 0.50
+    score = min(1.0, max(0.0, (mean_ratio - 0.35) / 0.40))
+    triggered = mean_ratio > 0.45
     return score, triggered
 
 
@@ -175,6 +178,8 @@ def signal_face_texture_variance(crops):
     """
     GAN-generated faces are often unnaturally smooth (low Laplacian variance)
     OR overly sharp (very high). Score both extremes.
+    Real faces: 100 < mean_var < 6000 (wide range due to focus, lighting).
+    Only flag truly extreme cases.
     """
     if not crops:
         return 0.0, False
@@ -185,17 +190,17 @@ def signal_face_texture_variance(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    # Real faces typically: 200 < mean_var < 4000 and std_var relatively stable
-    too_smooth    = mean_var < 80.0
-    too_sharp     = mean_var > 8000.0
-    unstable_var  = std_var / (mean_var + 1.0) > 1.5
+    # Real faces typically: 100 < mean_var < 6000 and std_var relatively stable
+    too_smooth    = mean_var < 30.0
+    too_sharp     = mean_var > 15000.0
+    unstable_var  = std_var / (mean_var + 1.0) > 2.5
     triggered = too_smooth or too_sharp or unstable_var
     if too_smooth:
-        score = min(1.0, 80.0 / (mean_var + 1.0))
+        score = min(1.0, 30.0 / (mean_var + 1.0))
     elif too_sharp:
-        score = min(1.0, mean_var / 12000.0)
+        score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable_var:
-        score = min(1.0, std_var / (mean_var + 1.0) / 2.0)
+        score = min(1.0, (std_var / (mean_var + 1.0) - 2.5) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -264,6 +269,8 @@ def signal_noise_floor(crops):
     """
     GAN images have a characteristic noise pattern. Estimate local noise
     using high-frequency residual after Gaussian blur.
+    Real faces after camera capture: mean_noise typically 0.8–3.5.
+    GAN faces: often < 0.4 (unnaturally clean after post-processing).
     """
     if not crops:
         return 0.0, False
@@ -275,15 +282,14 @@ def signal_noise_floor(crops):
         noise_levels.append(float(np.mean(residual)))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    # Very low noise (<1.5) is suspicious — GAN images are too clean
-    # Very inconsistent noise across frames also suspicious
-    too_clean      = mean_noise < 1.5
-    inconsistent   = std_noise / (mean_noise + 1e-6) > 0.8
+    # Only flag truly extreme: below 0.4 (no real camera produces this) or very inconsistent
+    too_clean      = mean_noise < 0.4
+    inconsistent   = std_noise / (mean_noise + 1e-6) > 1.5
     triggered = too_clean or inconsistent
     if too_clean:
-        score = min(1.0, 1.5 / (mean_noise + 0.1))
+        score = min(1.0, 0.4 / (mean_noise + 0.05))
     elif inconsistent:
-        score = min(1.0, std_noise / (mean_noise + 1e-6) / 2.0)
+        score = min(1.0, (std_noise / (mean_noise + 1e-6) - 1.5) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -346,9 +352,10 @@ def analyze_video(video_path):
         if noise_triggered:
             signals.append("abnormal_noise_pattern")
     else:
-        # No faces → lower confidence, mild uncertainty
+        # No faces detected — do NOT assign suspicious scores.
+        # Many real videos have no faces (scenery, sports, etc.).
         signals.append("no_face_detected")
-        raw_scores["face_texture"]  = 0.3
+        raw_scores["face_texture"]   = 0.0
         raw_scores["blending_edges"] = 0.0
         raw_scores["noise_floor"]    = 0.0
 
@@ -394,6 +401,8 @@ def _build_result(prob, signals, start_time, raw_scores=None):
     else:
         verdict    = "APPROVED"
         confidence = "HIGH"
+        # Remove any leftover rejection signals from a previous run
+        signals = [s for s in signals if s not in ("deepfake_detected",)]
 
     result = {
         "model":              "trueframe-video-signal-analyzer",

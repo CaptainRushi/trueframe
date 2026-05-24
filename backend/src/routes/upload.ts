@@ -212,7 +212,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         compression_score: mediaResult.compression_score ?? 0
       };
 
-      if (mediaResult.verdict === 'APPROVED' || mediaResult.verdict === 'UNDER_REVIEW') {
+      if (mediaResult.verdict === 'APPROVED') {
         deepfakeVerdict = 'APPROVED';
       } else {
         deepfakeVerdict = 'REJECTED';
@@ -245,10 +245,9 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       }
 
       // --- 4. COMPUTE FINAL VERDICT ---
+      // Binary decision: APPROVED → REAL, REJECTED → FAKE
       if (deepfakeVerdict === 'REJECTED' || fakeNewsVerdict === 'REJECTED') {
         finalVerdict = 'FAKE';
-      } else if (deepfakeVerdict === 'UNDER_REVIEW') {
-        finalVerdict = 'UNDER_REVIEW';
       } else if (deepfakeVerdict === 'APPROVED' && (fakeNewsVerdict === 'APPROVED' || fakeNewsVerdict === 'SKIPPED')) {
         finalVerdict = 'REAL';
       } else {

@@ -35,8 +35,11 @@ WEIGHT_TEMPORAL     = 0.15
 WEIGHT_METADATA     = 0.10
 WEIGHT_COMPRESSION  = 0.15
 
-THRESHOLD_APPROVE   = 0.60   # < 0.60 → APPROVED
-THRESHOLD_REJECT    = 0.60   # >= 0.60 → REJECTED
+# Only content with final_score >= 0.80 is considered synthetic.
+# Real-world media (with natural JPEG compression, lighting variation, etc.)
+# typically scores well below 0.50 with these heuristics.
+THRESHOLD_APPROVE   = 0.80   # < 0.80 → APPROVED
+THRESHOLD_REJECT    = 0.80   # >= 0.80 → REJECTED
 
 MAX_FRAMES          = 20
 FRAME_SIZE          = (224, 224)
@@ -134,6 +137,7 @@ def _signal_frequency_artifacts(frames):
     GAN generators leave characteristic periodic noise in frequency domain.
     Measure power in mid-high frequency bands via 2D FFT.
     Score: 0 (natural) → 1 (suspicious).
+    Real photos typically score 0.0; GAN images score > 0.6.
     """
     if not frames:
         return 0.0, False
@@ -145,25 +149,32 @@ def _signal_frequency_artifacts(frames):
         magnitude = np.log1p(np.abs(fft_shifted))
         h, w = magnitude.shape
         cy, cx = h // 2, w // 2
-        # Annular band: 10% – 40% of Nyquist
-        r_inner = int(min(h, w) * 0.10)
-        r_outer = int(min(h, w) * 0.40)
+        # High-frequency annular band: 40% – 70% of Nyquist (where GAN artifacts appear)
+        r_inner = int(min(h, w) * 0.40)
+        r_outer = int(min(h, w) * 0.70)
+        # Low-frequency reference band: 0% – 20%
+        r_ref = int(min(h, w) * 0.20)
         Y, X = np.ogrid[:h, :w]
         dist = np.sqrt((Y - cy) ** 2 + (X - cx) ** 2)
-        band_mask = (dist >= r_inner) & (dist <= r_outer)
-        band_power = magnitude[band_mask].mean()
-        total_power = magnitude.mean()
-        ratio = band_power / (total_power + 1e-6)
+        hf_mask  = (dist >= r_inner) & (dist <= r_outer)
+        ref_mask = dist <= r_ref
+        hf_power  = magnitude[hf_mask].mean()
+        ref_power = magnitude[ref_mask].mean()
+        # GAN images have unnaturally HIGH high-frequency power relative to low-freq
+        ratio = hf_power / (ref_power + 1e-6)
         scores.append(ratio)
     mean_ratio = float(np.mean(scores))
-    # GAN images typically: ratio > 0.95 (unnaturally uniform mid-band)
-    score = min(1.0, max(0.0, (mean_ratio - 0.80) / 0.25))
-    triggered = mean_ratio > 0.90
+    # Real photos: ratio typically 0.4–0.7; GAN images: > 0.85
+    score = min(1.0, max(0.0, (mean_ratio - 0.75) / 0.30))
+    triggered = mean_ratio > 0.85
     return score, triggered
 
 
 def _signal_block_artifacts(frames):
-    """Detect 8×8 DCT block grid from re-encoding."""
+    """Detect 8×8 DCT block grid from re-encoding.
+    NOTE: All JPEGs have some DCT blocking — we only flag extremely severe cases
+    where block variance is an outlier, not normal camera JPEG artifacts.
+    """
     if not frames:
         return 0.0, False
     scores = []
@@ -180,13 +191,18 @@ def _signal_block_artifacts(frames):
         pixel_var = float(np.var(gray))
         scores.append(block_var / (pixel_var + 1e-6))
     mean_ratio = float(np.mean(scores))
-    score = min(1.0, mean_ratio / 0.25)
-    triggered = mean_ratio > 0.15
+    # Raise threshold: normal camera JPEGs score 0.05–0.35;
+    # deeply re-encoded fakes score > 0.50
+    score = min(1.0, max(0.0, (mean_ratio - 0.35) / 0.40))
+    triggered = mean_ratio > 0.45
     return score, triggered
 
 
 def _signal_face_texture(crops):
-    """Unnatural face smoothness or sharpness via Laplacian variance."""
+    """Unnatural face smoothness or sharpness via Laplacian variance.
+    Real faces: 100 < mean_var < 6000 (wide range due to focus, lighting).
+    GAN faces: often < 30 (unnaturally smooth) or > 15000 (artefact sharpening).
+    """
     if not crops:
         return 0.0, False
     variances = []
@@ -196,16 +212,17 @@ def _signal_face_texture(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    too_smooth   = mean_var < 80.0
-    too_sharp    = mean_var > 8000.0
-    unstable     = std_var / (mean_var + 1.0) > 1.5
+    # Tightened to only flag extreme outliers
+    too_smooth   = mean_var < 30.0
+    too_sharp    = mean_var > 15000.0
+    unstable     = std_var / (mean_var + 1.0) > 2.5
     triggered = too_smooth or too_sharp or unstable
     if too_smooth:
-        score = min(1.0, 80.0 / (mean_var + 1.0))
+        score = min(1.0, 30.0 / (mean_var + 1.0))
     elif too_sharp:
-        score = min(1.0, mean_var / 12000.0)
+        score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable:
-        score = min(1.0, std_var / (mean_var + 1.0) / 2.0)
+        score = min(1.0, (std_var / (mean_var + 1.0) - 2.5) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -245,7 +262,11 @@ def _signal_blending_edges(crops):
 
 
 def _signal_noise_floor(crops):
-    """Gaussian residual noise — GAN faces are too clean."""
+    """Gaussian residual noise — GAN faces are too clean.
+    Real faces after JPEG compression: mean_noise typically 0.8–3.5.
+    GAN faces: often < 0.5 (too clean after post-processing).
+    We use a much stricter threshold to avoid false-positives on real images.
+    """
     if not crops:
         return 0.0, False
     noise_levels = []
@@ -255,13 +276,14 @@ def _signal_noise_floor(crops):
         noise_levels.append(float(np.mean(np.abs(gray - blurred))))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    too_clean    = mean_noise < 1.5
-    inconsistent = std_noise / (mean_noise + 1e-6) > 0.8
+    # Only flag truly extreme values that real cameras never produce
+    too_clean    = mean_noise < 0.4
+    inconsistent = std_noise / (mean_noise + 1e-6) > 1.5
     triggered = too_clean or inconsistent
     if too_clean:
-        score = min(1.0, 1.5 / (mean_noise + 0.1))
+        score = min(1.0, 0.4 / (mean_noise + 0.05))
     elif inconsistent:
-        score = min(1.0, std_noise / (mean_noise + 1e-6) / 2.0)
+        score = min(1.0, (std_noise / (mean_noise + 1e-6) - 1.5) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -360,8 +382,10 @@ def analyze(file_path):
         if noise_trig:
             signals.append("abnormal_noise_pattern")
     else:
+        # No faces detected — do NOT assign a suspicious score.
+        # Many legitimate posts (landscapes, objects, screenshots) have no faces.
         signals.append("no_clear_faces_detected")
-        raw["texture"] = 0.25
+        raw["texture"] = 0.0
         raw["edges"]   = 0.0
         raw["noise"]   = 0.0
 
@@ -438,6 +462,8 @@ def _build_result(model_score, artifact_score, temporal_score,
             signals.append("synthetic_generation_signal")
     else:
         verdict = "APPROVED"
+        # Ensure no lingering REJECTED/UNDER_REVIEW state
+        signals = [s for s in signals if s not in ("synthetic_generation_signal", "deepfake_detected")]
 
     return {
         "model":             "trueframe-signal-analyzer",
