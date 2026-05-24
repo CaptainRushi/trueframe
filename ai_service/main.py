@@ -34,8 +34,8 @@ import numpy as np
 import cv2
 
 # ─────────────────── CONFIG ──────────────────────────
-THRESHOLD_REJECT    = 0.80   # >= 0.80 → REJECTED
-THRESHOLD_APPROVE   = 0.80   # <  0.80 → APPROVED
+THRESHOLD_REJECT    = 0.60   # >= 0.60 → REJECTED
+THRESHOLD_APPROVE   = 0.60   # <  0.60 → APPROVED
 
 MAX_FRAMES          = 20
 FRAME_SIZE          = (224, 224)
@@ -43,11 +43,12 @@ IMAGENET_MEAN       = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD        = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 # Signal analysis weights (fallback path)
-WEIGHT_MODEL        = 0.40
-WEIGHT_ARTIFACT     = 0.20
+WEIGHT_MODEL        = 0.32
+WEIGHT_ARTIFACT     = 0.18
 WEIGHT_TEMPORAL     = 0.15
-WEIGHT_METADATA     = 0.10
-WEIGHT_COMPRESSION  = 0.15
+WEIGHT_EXPRESSION   = 0.20
+WEIGHT_METADATA     = 0.07
+WEIGHT_COMPRESSION  = 0.08
 
 
 # ─────────────────── HELPERS ─────────────────────────
@@ -116,62 +117,102 @@ def _normalize_crop(face_bgr):
     return normalized.transpose(2, 0, 1)   # (3, 224, 224)
 
 
-def _detect_face(frame):
-    """Detect and return the largest face crop from a frame."""
-    # Try MTCNN first (facenet-pytorch)
+_DETECTOR = None
+
+def _build_detector():
+    # ── MTCNN ──────────────────────────────────────────
     try:
         from facenet_pytorch import MTCNN
         import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         mtcnn = MTCNN(
             image_size=224, margin=20, min_face_size=40,
-            keep_all=False, post_process=False,
-            device="cuda" if torch.cuda.is_available() else "cpu",
+            keep_all=False, post_process=False, device=device,
         )
-        from PIL import Image
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil = Image.fromarray(rgb)
-        face_t = mtcnn(pil)
-        if face_t is not None:
-            face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
-            return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+
+        def _mtcnn(frame_bgr):
+            from PIL import Image
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(rgb)
+            try:
+                face_t = mtcnn(pil)
+                if face_t is None:
+                    return None
+                face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+                return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+            except Exception:
+                return None
+
+        _log("[Detector] MTCNN (facenet-pytorch) initialized successfully.")
+        return _mtcnn
     except Exception:
         pass
 
-    # MediaPipe fallback
+    # ── MediaPipe ──────────────────────────────────────
     try:
         import mediapipe as mp
-        det = mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.4
-        )
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        res = det.process(rgb)
-        if res.detections:
-            best = max(res.detections, key=lambda d: d.score[0])
+        try:
+            det = mp.solutions.face_detection.FaceDetection(
+                model_selection=1, min_detection_confidence=0.4
+            )
+        except Exception:
+            det = mp.solutions.face_detection.FaceDetection(
+                min_detection_confidence=0.4
+            )
+
+        def _mediapipe(frame_bgr):
+            rgb     = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            results = det.process(rgb)
+            if not results.detections:
+                return None
+            best = max(results.detections, key=lambda d: d.score[0])
             bbox = best.location_data.relative_bounding_box
-            fh, fw = frame.shape[:2]
-            px = bbox.width * 0.15
+            fh, fw = frame_bgr.shape[:2]
+            px = bbox.width  * 0.15
             py = bbox.height * 0.15
             x1 = max(0, int((bbox.xmin - px) * fw))
             y1 = max(0, int((bbox.ymin - py) * fh))
-            x2 = min(fw, int((bbox.xmin + bbox.width + px) * fw))
+            x2 = min(fw, int((bbox.xmin + bbox.width  + px) * fw))
             y2 = min(fh, int((bbox.ymin + bbox.height + py) * fh))
-            if x2 - x1 >= 32 and y2 - y1 >= 32:
-                return frame[y1:y2, x1:x2]
+            if x2 - x1 < 32 or y2 - y1 < 32:
+                return None
+            return frame_bgr[y1:y2, x1:x2]
+
+        _log("[Detector] MediaPipe initialized successfully.")
+        return _mediapipe
     except Exception:
         pass
 
-    # Haar cascade fallback
+    # ── Haar cascade ───────────────────────────────────
     cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
     cascade = cv2.CascadeClassifier(cascade_path)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    for nb in [3, 2]:
-        faces = cascade.detectMultiScale(gray, 1.05, nb, minSize=(32, 32))
-        if len(faces) > 0:
-            x, y, w, h = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
-            pad = int(min(w, h) * 0.15)
-            return frame[max(0, y-pad):min(frame.shape[0], y+h+pad),
-                         max(0, x-pad):min(frame.shape[1], x+w+pad)]
-    return None
+    
+    def _haar(frame_bgr):
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        for nb in [3, 2]:
+            faces = cascade.detectMultiScale(gray, 1.05, nb, minSize=(32, 32))
+            if len(faces) > 0:
+                x, y, w, h = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
+                pad = int(min(w, h) * 0.15)
+                return frame_bgr[max(0, y-pad):min(frame_bgr.shape[0], y+h+pad),
+                                 max(0, x-pad):min(frame_bgr.shape[1], x+w+pad)]
+        return None
+
+    _log("[Detector] Haar cascade initialized as fallback.")
+    return _haar
+
+
+def _get_detector():
+    global _DETECTOR
+    if _DETECTOR is None:
+        _DETECTOR = _build_detector()
+    return _DETECTOR
+
+
+def _detect_face(frame):
+    """Detect and return the largest face crop from a frame using cached detector."""
+    detector = _get_detector()
+    return detector(frame)
 
 
 def _run_onnx_inference(sess, frames):
@@ -207,54 +248,142 @@ def _run_onnx_inference(sess, frames):
         return None
 
 
-# ─────────────────── SIGNAL DETECTORS (fallback) ─────
-
-def _detect_faces_haar(frame):
-    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    cascade = cv2.CascadeClassifier(cascade_path)
-    gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
-    crops = []
-    for (x, y, w, h) in faces:
-        crops.append(frame[y:y + h, x:x + w])
-    return crops
-
-
 def _get_face_crops(frames):
-    """Try MediaPipe first, fall back to Haar."""
-    face_det = None
-    try:
-        import mediapipe as mp
-        face_det = mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.5
-        )
-    except Exception:
-        pass
-
+    """Detect and crop faces from each frame using cached detector."""
     crops = []
+    detector = _get_detector()
     for frame in frames:
-        if face_det is not None:
-            try:
-                rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = face_det.process(rgb)
-                if results.detections:
-                    best = max(results.detections, key=lambda d: d.score[0])
-                    bbox = best.location_data.relative_bounding_box
-                    h, w = frame.shape[:2]
-                    x1 = max(0, int(bbox.xmin * w))
-                    y1 = max(0, int(bbox.ymin * h))
-                    x2 = min(w, x1 + int(bbox.width * w))
-                    y2 = min(h, y1 + int(bbox.height * h))
-                    if x2 - x1 >= 32 and y2 - y1 >= 32:
-                        crops.append(cv2.resize(frame[y1:y2, x1:x2], FRAME_SIZE))
-                    continue
-            except Exception:
-                pass
-        haar_crops = _detect_faces_haar(frame)
-        for c in haar_crops:
-            if c.shape[0] >= 32 and c.shape[1] >= 32:
-                crops.append(cv2.resize(c, FRAME_SIZE))
+        face = detector(frame)
+        if face is None:
+            # Try on brightened version for dark frames
+            bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
+            face = detector(bright)
+        if face is not None and face.size > 0:
+            crops.append(cv2.resize(face, FRAME_SIZE))
     return crops
+
+
+def _get_primary_face_track(frames):
+    """Return a single face crop per frame (or None) for temporal analysis."""
+    if not frames:
+        return []
+    detector = _get_detector()
+    track = []
+    for frame in frames:
+        face = detector(frame)
+        if face is None:
+            bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
+            face = detector(bright)
+        track.append(face)
+    return track
+
+
+def _expression_rois(face_crop):
+    h, w = face_crop.shape[:2]
+    if h < 40 or w < 40:
+        return None, None
+    eye = face_crop[int(h * 0.22):int(h * 0.52), :]
+    mouth = face_crop[int(h * 0.62):int(h * 0.90),
+                      int(w * 0.18):int(w * 0.82)]
+    if eye.size == 0 or mouth.size == 0:
+        return None, None
+    return eye, mouth
+
+
+def _flow_magnitude(prev, curr):
+    flow = cv2.calcOpticalFlowFarneback(
+        prev, curr, None,
+        pyr_scale=0.5, levels=2, winsize=15,
+        iterations=3, poly_n=5, poly_sigma=1.1,
+        flags=0,
+    )
+    mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+    return float(np.mean(mag))
+
+
+def _signal_expression_consistency(frames):
+    if len(frames) < 4:
+        return 0.0, False
+
+    track = _get_primary_face_track(frames)
+    mouth_moves = []
+    eye_moves = []
+    face_moves = []
+
+    prev_face = None
+    prev_eye = None
+    prev_mouth = None
+
+    for crop in track:
+        if crop is None:
+            prev_face = prev_eye = prev_mouth = None
+            continue
+        eye, mouth = _expression_rois(crop)
+        if eye is None or mouth is None:
+            prev_face = prev_eye = prev_mouth = None
+            continue
+
+        face_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        eye_gray = cv2.cvtColor(eye, cv2.COLOR_BGR2GRAY)
+        mouth_gray = cv2.cvtColor(mouth, cv2.COLOR_BGR2GRAY)
+
+        face_gray = cv2.resize(face_gray, (96, 96))
+        eye_gray = cv2.resize(eye_gray, (64, 32))
+        mouth_gray = cv2.resize(mouth_gray, (64, 32))
+
+        if prev_face is not None:
+            face_moves.append(_flow_magnitude(prev_face, face_gray))
+            eye_moves.append(_flow_magnitude(prev_eye, eye_gray))
+            mouth_moves.append(_flow_magnitude(prev_mouth, mouth_gray))
+
+        prev_face, prev_eye, prev_mouth = face_gray, eye_gray, mouth_gray
+
+    if len(mouth_moves) < 3 or len(face_moves) < 3:
+        return 0.0, False
+
+    face_mean = float(np.mean(face_moves))
+    mouth_mean = float(np.mean(mouth_moves))
+    eye_mean = float(np.mean(eye_moves)) if eye_moves else 0.0
+
+    if face_mean < 1e-3 or mouth_mean < 1e-3:
+        return 0.0, False
+
+    mouth_ratio = mouth_mean / (face_mean + 1e-6)
+    eye_ratio = eye_mean / (face_mean + 1e-6) if eye_mean > 0 else 0.0
+
+    mouth_cv = float(np.std(mouth_moves)) / (mouth_mean + 1e-6)
+    eye_cv = float(np.std(eye_moves)) / (eye_mean + 1e-6) if eye_mean > 0 else 0.0
+
+    def _ratio_score(val, low, high):
+        if val < low:
+            return min(1.0, (low - val) / low)
+        if val > high:
+            return min(1.0, (val - high) / high)
+        return 0.0
+
+    def _cv_score(val, low, high):
+        if val < low:
+            return min(1.0, (low - val) / low)
+        if val > high:
+            return min(1.0, (val - high) / high)
+        return 0.0
+
+    mouth_ratio_score = _ratio_score(mouth_ratio, 0.6, 2.0)
+    eye_ratio_score = _ratio_score(eye_ratio, 0.4, 1.6) if eye_mean > 0 else 0.0
+    mouth_cv_score = _cv_score(mouth_cv, 0.15, 1.2)
+    eye_cv_score = _cv_score(eye_cv, 0.12, 1.0) if eye_mean > 0 else 0.0
+
+    score = (
+        0.40 * mouth_ratio_score +
+        0.25 * mouth_cv_score +
+        0.20 * eye_ratio_score +
+        0.15 * eye_cv_score
+    )
+    score = float(np.clip(score, 0.0, 1.0))
+    triggered = score > 0.55 or mouth_ratio < 0.5 or mouth_ratio > 2.2 or \
+        (eye_mean > 0 and (eye_ratio < 0.35 or eye_ratio > 1.8))
+
+    return score, triggered
 
 
 def _signal_frequency_artifacts(frames):
@@ -602,11 +731,24 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         raw["temporal"] = 0.0
         raw["color"]    = 0.0
 
+    if video and has_faces:
+        expression_score, expression_trig = _signal_expression_consistency(frames)
+        raw["expression"] = expression_score
+        if expression_trig:
+            signals.append("facial_expression_inconsistency")
+    else:
+        raw["expression"] = 0.0
+
     meta_score, meta_trig = _signal_metadata(file_path)
     if meta_trig:
         signals.append("suspicious_metadata_integrity")
 
-    if has_faces:
+    # Strict Fail-Closed Check: If no faces are detected, score is automatically 1.0 (REJECTED)
+    if not has_faces:
+        signals.append("fail_closed")
+        return 1.0, signals, raw
+
+    if video:
         model_score = (
             raw["frequency"]         * 0.06 +
             raw["texture"]           * 0.10 +
@@ -618,24 +760,40 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             raw["eye_artifacts"]     * 0.14 +
             raw["channel_decoupling"]* 0.12
         )
+        artifact_score = raw["compression"]
+        temporal_score = raw.get("temporal", 0.0)
+
+        final_score = (
+            WEIGHT_MODEL       * model_score    +
+            WEIGHT_ARTIFACT    * artifact_score +
+            WEIGHT_TEMPORAL    * temporal_score +
+            WEIGHT_EXPRESSION  * raw["expression"] +
+            WEIGHT_METADATA    * meta_score     +
+            WEIGHT_COMPRESSION * raw["compression"]
+        )
     else:
-        model_score = (
-            raw["frequency"] * 0.50 +
-            raw["texture"]   * 0.10 +
-            raw["color"]     * 0.20 +
-            raw.get("temporal", 0.0) * 0.20
+        # Image Fallback Math Fix (Renormalized weights to sum to 1.0)
+        # We don't have temporal/expression/color signals for images.
+        model_score_raw = (
+            raw["frequency"]         * 0.06 +
+            raw["texture"]           * 0.10 +
+            raw["edges"]             * 0.10 +
+            raw["noise"]             * 0.08 +
+            raw["gan_frequency"]     * 0.22 +
+            raw["skin_tone"]         * 0.12 +
+            raw["eye_artifacts"]     * 0.14 +
+            raw["channel_decoupling"]* 0.12
+        )
+        model_score = model_score_raw / 0.94  # normalize because color is 0.0
+        artifact_score = raw["compression"]
+
+        # Use image-specific normalized weights summing to 1.0
+        final_score = (
+            0.70 * model_score +
+            0.20 * artifact_score +
+            0.10 * meta_score
         )
 
-    artifact_score = raw["compression"]
-    temporal_score = raw.get("temporal", 0.0)
-
-    final_score = (
-        WEIGHT_MODEL       * model_score    +
-        WEIGHT_ARTIFACT    * artifact_score +
-        WEIGHT_TEMPORAL    * temporal_score +
-        WEIGHT_METADATA    * meta_score     +
-        WEIGHT_COMPRESSION * raw["compression"]
-    )
     final_score = float(np.clip(final_score, 0.0, 1.0))
 
     return final_score, signals, raw
@@ -656,8 +814,8 @@ def analyze(file_path):
         frames = [img] if img is not None else []
 
     if not frames:
-        return _build_result(0.1, 0.0, 0.0, 0.0, 0.0,
-                             ["media_decode_error"], start_time)
+        return _build_result(1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                             ["media_decode_error", "fail_closed"], start_time, final_score=1.0)
 
     crops     = _get_face_crops(frames)
     has_faces = len(crops) >= (2 if video else 1)
@@ -680,8 +838,13 @@ def analyze(file_path):
 
     # ── Score fusion ────────────────────────────────────
     if onnx_score is not None:
-        # Both available: model-weighted fusion
-        final_score = 0.70 * onnx_score + 0.30 * signal_score
+        # Both available: model-weighted fusion (boost signals when expressions look off)
+        signal_weight = 0.30
+        model_weight = 0.70
+        if video and raw.get("expression", 0.0) >= 0.55:
+            signal_weight = 0.45
+            model_weight = 0.55
+        final_score = model_weight * onnx_score + signal_weight * signal_score
         _log(f"[LightFakeDetect] fused score={final_score:.4f} "
              f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
     else:
@@ -690,14 +853,29 @@ def analyze(file_path):
         signals.append("signal_analysis_fallback")
         _log(f"[SignalAnalysis] fallback score={final_score:.4f}")
 
-    final_score = float(np.clip(final_score, 0.0, 1.0))
+    # ── Deepfake Signal Boosting ───────────────────────
+    # Boost final fused score when high-confidence anomalies are detected
+    boost = 0.0
+    if "gan_spectral_fingerprint" in signals:
+        boost += 0.35
+    if "face_blending_seam" in signals:
+        boost += 0.30
+    if "eye_region_gan_artifact" in signals:
+        boost += 0.30
+    if "unnatural_face_texture" in signals:
+        boost += 0.25
+    if "color_channel_decoupled" in signals:
+        boost += 0.25
+
+    final_score = float(np.clip(final_score + boost, 0.0, 1.0))
 
     return _build_result(
         raw.get("frequency", 0.0),
-        raw["compression"],
+        raw.get("compression", 0.0),
         raw.get("temporal", 0.0),
+        raw.get("expression", 0.0),
         0.0,
-        raw["compression"],
+        raw.get("compression", 0.0),
         signals,
         start_time,
         final_score,
@@ -706,13 +884,14 @@ def analyze(file_path):
 
 
 def _build_result(model_score, artifact_score, temporal_score,
-                  metadata_score, compression_score, signals,
+                  expression_score, metadata_score, compression_score, signals,
                   start_time, final_score=None, onnx_score=None):
     if final_score is None:
         final_score = (
             WEIGHT_MODEL       * model_score    +
             WEIGHT_ARTIFACT    * artifact_score +
             WEIGHT_TEMPORAL    * temporal_score +
+            WEIGHT_EXPRESSION  * expression_score +
             WEIGHT_METADATA    * metadata_score +
             WEIGHT_COMPRESSION * compression_score
         )
@@ -732,6 +911,7 @@ def _build_result(model_score, artifact_score, temporal_score,
         "model_score":       round(float(model_score), 4),
         "artifact_score":    round(float(artifact_score), 4),
         "temporal_score":    round(float(temporal_score), 4),
+        "expression_score":  round(float(expression_score), 4),
         "metadata_score":    round(float(metadata_score), 4),
         "compression_score": round(float(compression_score), 4),
         "final_score":       round(final_score, 4),
@@ -751,7 +931,7 @@ if __name__ == "__main__":
         print(json.dumps({
             "model": "lightfakedetect-v2",
             "model_score": 0.1, "artifact_score": 0.0,
-            "temporal_score": 0.0, "metadata_score": 0.0,
+            "temporal_score": 0.0, "expression_score": 0.0, "metadata_score": 0.0,
             "compression_score": 0.0, "final_score": 0.1,
             "verdict": "REJECTED", "signals": ["no_file_provided"],
         }))
@@ -763,7 +943,7 @@ if __name__ == "__main__":
         print(json.dumps({
             "model": "lightfakedetect-v2",
             "model_score": 0.1, "artifact_score": 0.0,
-            "temporal_score": 0.0, "metadata_score": 0.0,
+            "temporal_score": 0.0, "expression_score": 0.0, "metadata_score": 0.0,
             "compression_score": 0.0, "final_score": 0.1,
             "verdict": "REJECTED",
             "signals": [f"file_not_found: {file_path}", "fail_closed"],
@@ -778,7 +958,7 @@ if __name__ == "__main__":
         print(json.dumps({
             "model": "lightfakedetect-v2",
             "model_score": 0.1, "artifact_score": 0.0,
-            "temporal_score": 0.0, "metadata_score": 0.0,
+            "temporal_score": 0.0, "expression_score": 0.0, "metadata_score": 0.0,
             "compression_score": 0.0, "final_score": 0.1,
             "verdict": "REJECTED",
             "signals": [f"engine_error: {str(e)}", "fail_closed"],

@@ -42,8 +42,8 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 logger = logging.getLogger("trueframe.inference")
 
 # ─────────────────── CONFIG ──────────────────────────
-THRESHOLD_APPROVE = 0.80   # < 0.80 → APPROVED
-THRESHOLD_REJECT  = 0.80   # >= 0.80 → REJECTED
+THRESHOLD_APPROVE = 0.60   # < 0.60 → APPROVED
+THRESHOLD_REJECT  = 0.60   # >= 0.60 → REJECTED
 
 MAX_FRAMES     = 20        # Frames after SSIM deduplication
 FRAME_SIZE     = (224, 224)
@@ -588,7 +588,18 @@ def _run_signal_analysis(frames, crops):
     signals    = []
     raw_scores = {}
 
-    has_faces = len(crops) >= 3
+    # Strict Fail-Closed Check: If fewer than 2 face crops are detected, return 1.0 immediately (fail closed)
+    if len(crops) < 2:
+        signals.append("no_face_detected")
+        signals.append("fail_closed")
+        # Populate all raw scores with 0.0 to prevent KeyError in result builder
+        for k in ["temporal_flicker", "block_artifacts", "color_shift",
+                  "face_texture", "blending_edges", "noise_floor",
+                  "gan_frequency", "skin_tone", "eye_artifacts", "channel_decoupling"]:
+            raw_scores[k] = 0.0
+        return 1.0, signals, raw_scores
+
+    has_faces = len(crops) >= 2
 
     # Global signals (whole-frame)
     flicker_score, flicker_trig = signal_temporal_flicker(frames)
@@ -695,7 +706,7 @@ def analyze_video(video_path):
     # ── 1. Extract raw frames ─────────────────────────
     raw_frames = _extract_raw_frames(video_path, n=MAX_FRAMES * 3)
     if len(raw_frames) < 3:
-        return _build_result(0.5, ["insufficient_frames"], start_time)
+        return _build_result(1.0, ["insufficient_frames", "fail_closed"], start_time)
 
     # ── 2. SSIM-based deduplication ───────────────────
     unique_frames = _filter_similar_frames(raw_frames, SSIM_THRESHOLD, MAX_FRAMES * 2)
@@ -730,7 +741,21 @@ def analyze_video(video_path):
         signals.append("signal_analysis_fallback")
         logger.info(f"[SignalAnalysis] fallback score={final_score:.4f}")
 
-    final_score = round(float(np.clip(final_score, 0.0, 1.0)), 4)
+    # ── Deepfake Signal Boosting ───────────────────────
+    # Boost final fused score when high-confidence anomalies are detected
+    boost = 0.0
+    if "gan_spectral_fingerprint" in signals:
+        boost += 0.35
+    if "face_blending_seam" in signals:
+        boost += 0.30
+    if "eye_region_gan_artifact" in signals:
+        boost += 0.30
+    if "unnatural_face_texture" in signals:
+        boost += 0.25
+    if "color_channel_decoupled" in signals:
+        boost += 0.25
+
+    final_score = round(float(np.clip(final_score + boost, 0.0, 1.0)), 4)
 
     return _build_result(final_score, signals, start_time, raw_scores, onnx_score)
 
