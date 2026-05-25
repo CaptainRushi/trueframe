@@ -37,14 +37,12 @@ import logging
 import numpy as np
 import cv2
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
 
 logger = logging.getLogger("trueframe.inference")
 
 # ─────────────────── CONFIG ──────────────────────────
-THRESHOLD_APPROVE = 0.60   # < 0.60 → APPROVED
-THRESHOLD_REJECT  = 0.60   # >= 0.60 → REJECTED
-
 MAX_FRAMES     = 20        # Frames after SSIM deduplication
 FRAME_SIZE     = (224, 224)
 SSIM_THRESHOLD = 0.95      # Frames more similar than this are duplicates
@@ -286,9 +284,13 @@ def _get_onnx_session():
         return _ONNX_SESSION
     try:
         import onnxruntime as ort
-        model_dir  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
-        onnx_path  = os.path.join(model_dir, "lightfakedetect.onnx")
-        if not os.path.exists(onnx_path):
+        model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
+        candidates = [
+            os.path.join(model_dir, "lightfakedetect.onnx"),
+            os.path.join(model_dir, "trueframe_reels_detector.onnx"),
+        ]
+        onnx_path = next((path for path in candidates if os.path.exists(path)), None)
+        if onnx_path is None:
             return None
         sess = ort.InferenceSession(
             onnx_path,
@@ -317,13 +319,21 @@ def _run_onnx_inference(face_crops):
         return None
 
     try:
-        normalized = [_normalize_crop(c) for c in face_crops]  # list of (3, 224, 224)
+        # Pad or truncate to 10 frames for model's expected temporal dimension
+        crops = list(face_crops)
+        if len(crops) < 10:
+            while len(crops) < 10:
+                crops.append(crops[-1] if crops else crops)
+        elif len(crops) > 10:
+            crops = crops[:10]
+
+        normalized = [_normalize_crop(c) for c in crops]  # list of (3, 224, 224)
         seq = np.stack(normalized, axis=0)[np.newaxis].astype(np.float32)
-        # seq shape: (1, T, 3, 224, 224)
+        # seq shape: (1, 10, 3, 224, 224)
 
         input_name = sess.get_inputs()[0].name
         output     = sess.run(None, {input_name: seq})
-        prob       = float(output[0][0])
+        prob       = float(output[0].flatten()[0])
         return float(np.clip(prob, 0.0, 1.0))
     except Exception as e:
         logger.warning(f"[LightFakeDetect] inference error: {e}")
@@ -353,14 +363,31 @@ def signal_block_artifacts(frames):
     for frame in frames:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
         h, w = gray.shape
-        cols = gray[:, :w - (w % 8)]
-        row_means = cols.reshape(h, -1, 8).mean(axis=2)
-        block_var = float(np.var(row_means))
-        pixel_var = float(np.var(gray))
-        scores.append(block_var / (pixel_var + 1e-6))
+        if w < 24 or h < 24:
+            scores.append(0.0)
+            continue
+        # Detect 8x8 JPEG block boundary seams:
+        # Compare pixel differences ACROSS block boundaries vs WITHIN blocks
+        boundary_diffs = []
+        interior_diffs = []
+        for y in range(0, h, 8):
+            for x in range(8, w - 8, 8):
+                bd = abs(float(gray[y, x]) - float(gray[y, x - 1]))
+                boundary_diffs.append(bd)
+                id_val = abs(float(gray[y, x + 4]) - float(gray[y, x + 3]))
+                interior_diffs.append(id_val)
+        if not boundary_diffs or not interior_diffs:
+            scores.append(0.0)
+            continue
+        bd_mean = float(np.mean(boundary_diffs))
+        id_mean = float(np.mean(interior_diffs))
+        ratio = bd_mean / (id_mean + 1e-6)
+        scores.append(max(0.0, ratio - 1.0))
+    if not scores:
+        return 0.0, False
     mean_ratio = float(np.mean(scores))
-    score = min(1.0, max(0.0, (mean_ratio - 0.35) / 0.40))
-    triggered = mean_ratio > 0.45
+    score = min(1.0, max(0.0, mean_ratio * 4.0))
+    triggered = mean_ratio > 0.20
     return score, triggered
 
 
@@ -391,12 +418,12 @@ def signal_face_texture_variance(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    too_smooth   = mean_var < 30.0
+    too_smooth   = mean_var < 120.0
     too_sharp    = mean_var > 15000.0
-    unstable_var = std_var / (mean_var + 1.0) > 2.5
+    unstable_var = std_var / (mean_var + 1.0) > 1.8
     triggered = too_smooth or too_sharp or unstable_var
     if too_smooth:
-        score = min(1.0, 30.0 / (mean_var + 1.0))
+        score = min(1.0, 100.0 / (mean_var + 1.0))
     elif too_sharp:
         score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable_var:
@@ -432,7 +459,7 @@ def signal_blending_edges(crops):
         return 0.0, False
     mean_ratio = float(np.mean(edge_ratios))
     deviation  = abs(mean_ratio - 1.0)
-    triggered  = deviation > 0.5
+    triggered  = deviation > 0.30
     score      = min(1.0, deviation / 1.2)
     return score, triggered
 
@@ -484,7 +511,7 @@ def signal_face_gan_frequency(crops):
         scores.append(hf_power / (lf_power + 1e-6))
     mean_ratio = float(np.mean(scores))
     score = min(1.0, max(0.0, (mean_ratio - 0.55) / 0.35))
-    triggered = mean_ratio > 0.62
+    triggered = mean_ratio > 0.58
     return score, triggered
 
 
@@ -772,10 +799,15 @@ def _build_result(prob, signals, start_time, raw_scores=None, onnx_score=None):
         confidence = "HIGH"
         if "deepfake_detected" not in signals:
             signals.append("deepfake_detected")
+    elif prob >= THRESHOLD_APPROVE:
+        verdict    = "UNDER_REVIEW"
+        confidence = "MEDIUM"
+        if "borderline_needs_review" not in signals:
+            signals.append("borderline_needs_review")
     else:
         verdict    = "APPROVED"
         confidence = "HIGH"
-        signals    = [s for s in signals if s not in ("deepfake_detected",)]
+        signals    = [s for s in signals if s not in ("deepfake_detected", "borderline_needs_review")]
 
     result = {
         "model":                "lightfakedetect-video-v2",

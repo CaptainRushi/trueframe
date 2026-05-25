@@ -17,8 +17,9 @@ Score fusion when both run:
     final = 0.70 * model_score + 0.30 * signal_score
 
 Verdict:
-    final_score >= 0.80 → REJECTED (deepfake detected)
-    final_score <  0.80 → APPROVED (real content)
+    final_score >= THRESHOLD_REJECT → REJECTED (deepfake detected)
+    THRESHOLD_APPROVE <= final_score < THRESHOLD_REJECT → UNDER_REVIEW
+    final_score < THRESHOLD_APPROVE → APPROVED (real content)
 
 Usage:
     python main.py <file_path>
@@ -32,11 +33,9 @@ import json
 import time
 import numpy as np
 import cv2
+from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
 
 # ─────────────────── CONFIG ──────────────────────────
-THRESHOLD_REJECT    = 0.60   # >= 0.60 → REJECTED
-THRESHOLD_APPROVE   = 0.60   # <  0.60 → APPROVED
-
 MAX_FRAMES          = 20
 FRAME_SIZE          = (224, 224)
 IMAGENET_MEAN       = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -95,8 +94,12 @@ def _get_onnx_session():
     try:
         import onnxruntime as ort
         model_dir = os.path.join(os.path.dirname(__file__), "models")
-        onnx_path = os.path.join(model_dir, "lightfakedetect.onnx")
-        if not os.path.exists(onnx_path):
+        candidates = [
+            os.path.join(model_dir, "lightfakedetect.onnx"),
+            os.path.join(model_dir, "trueframe_reels_detector.onnx"),
+        ]
+        onnx_path = next((path for path in candidates if os.path.exists(path)), None)
+        if onnx_path is None:
             return None, None
         sess = ort.InferenceSession(
             onnx_path,
@@ -237,11 +240,18 @@ def _run_onnx_inference(sess, frames):
         if len(crops) < 1:
             return None   # No faces detected — can't use model
 
-        # Stack into (1, T, 3, 224, 224)
+        # Pad or truncate to 10 frames for model's expected temporal dimension
+        if len(crops) < 10:
+            while len(crops) < 10:
+                crops.append(crops[-1] if crops else crops)
+        elif len(crops) > 10:
+            crops = crops[:10]
+
+        # Stack into (1, 10, 3, 224, 224)
         seq = np.stack(crops, axis=0)[np.newaxis].astype(np.float32)
         input_name = sess.get_inputs()[0].name
         output = sess.run(None, {input_name: seq})
-        prob = float(output[0][0])
+        prob = float(output[0].flatten()[0])
         return float(np.clip(prob, 0.0, 1.0))
     except Exception as e:
         _log(f"[LightFakeDetect] ONNX inference error: {e}")
@@ -421,17 +431,35 @@ def _signal_block_artifacts(frames):
     for frame in frames:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
         h, w = gray.shape
-        cols = gray[:, :w - (w % 8)]
-        if cols.shape[1] < 8:
+        if w < 24 or h < 24:
             scores.append(0.0)
             continue
-        row_means = cols.reshape(h, -1, 8).mean(axis=2)
-        block_var = float(np.var(row_means))
-        pixel_var = float(np.var(gray))
-        scores.append(block_var / (pixel_var + 1e-6))
+        # Detect 8x8 JPEG block boundary seams:
+        # Compare pixel differences ACROSS block boundaries vs WITHIN blocks
+        # At each 8-pixel boundary, compute |pixel(boundary) - pixel(boundary-1)|
+        # vs |pixel(boundary+4) - pixel(boundary+3)| for interior positions
+        boundary_diffs = []
+        interior_diffs = []
+        for y in range(0, h, 8):
+            for x in range(8, w - 8, 8):
+                # Across boundary at column x
+                bd = abs(float(gray[y, x]) - float(gray[y, x - 1]))
+                boundary_diffs.append(bd)
+                # Interior (within block) at column x+4
+                id_val = abs(float(gray[y, x + 4]) - float(gray[y, x + 3]))
+                interior_diffs.append(id_val)
+        if not boundary_diffs or not interior_diffs:
+            scores.append(0.0)
+            continue
+        bd_mean = float(np.mean(boundary_diffs))
+        id_mean = float(np.mean(interior_diffs))
+        ratio = bd_mean / (id_mean + 1e-6)
+        scores.append(max(0.0, ratio - 1.0))
+    if not scores:
+        return 0.0, False
     mean_ratio = float(np.mean(scores))
-    score = min(1.0, max(0.0, (mean_ratio - 0.35) / 0.40))
-    triggered = mean_ratio > 0.45
+    score = min(1.0, max(0.0, mean_ratio * 4.0))
+    triggered = mean_ratio > 0.20
     return score, triggered
 
 
@@ -445,16 +473,16 @@ def _signal_face_texture(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    too_smooth   = mean_var < 30.0
+    too_smooth   = mean_var < 80.0
     too_sharp    = mean_var > 15000.0
-    unstable     = std_var / (mean_var + 1.0) > 2.5
+    unstable     = std_var / (mean_var + 1.0) > 2.0
     triggered = too_smooth or too_sharp or unstable
     if too_smooth:
-        score = min(1.0, 30.0 / (mean_var + 1.0))
+        score = min(1.0, 80.0 / (mean_var + 1.0))
     elif too_sharp:
         score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable:
-        score = min(1.0, (std_var / (mean_var + 1.0) - 2.5) / 2.0)
+        score = min(1.0, (std_var / (mean_var + 1.0) - 1.8) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -485,8 +513,8 @@ def _signal_blending_edges(crops):
         return 0.0, False
     mean_ratio = float(np.mean(edge_ratios))
     deviation  = abs(mean_ratio - 1.0)
-    triggered  = deviation > 0.5
-    score = min(1.0, deviation / 1.2)
+    triggered  = deviation > 0.30
+    score = min(1.0, deviation / 0.8)
     return score, triggered
 
 
@@ -535,14 +563,17 @@ def _signal_face_gan_frequency(crops):
         scores.append(hf_power / (lf_power + 1e-6))
     mean_ratio = float(np.mean(scores))
     score = min(1.0, max(0.0, (mean_ratio - 0.55) / 0.35))
-    triggered = mean_ratio > 0.62
+    triggered = mean_ratio > 0.58
     return score, triggered
 
 
 def _signal_skin_tone_consistency(crops):
-    if not crops:
+    if len(crops) < 3:
+        # For single images: GAN faces may have unnaturally UNIFORM skin
+        # But single-crop hue std is unreliable - skip
         return 0.0, False
-    skin_hue_stds = []
+    skin_hues = []
+    skin_sats = []
     for crop in crops:
         hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV).astype(np.float32)
         H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
@@ -551,13 +582,17 @@ def _signal_skin_tone_consistency(crops):
         ) & (S >= 40) & (V >= 50)
         if skin_mask.sum() < 100:
             continue
-        skin_hue_stds.append(float(H[skin_mask].std()))
-    if not skin_hue_stds:
+        skin_hues.append(float(H[skin_mask].mean()))
+        skin_sats.append(float(S[skin_mask].mean()))
+    if len(skin_hues) < 3:
         return 0.0, False
-    mean_std = float(np.mean(skin_hue_stds))
-    score = min(1.0, max(0.0, (mean_std - 6.0) / 10.0))
-    triggered = mean_std > 8.0
-    return score, triggered
+    hue_std = float(np.std(skin_hues))
+    sat_std = float(np.std(skin_sats))
+    hue_score = min(1.0, max(0.0, (hue_std - 3.0) / 8.0))
+    sat_score = min(1.0, max(0.0, (sat_std - 12.0) / 20.0))
+    score = 0.6 * hue_score + 0.4 * sat_score
+    triggered = hue_std > 4.5 or sat_std > 18.0
+    return float(score), triggered
 
 
 def _signal_eye_region_artifacts(crops):
@@ -901,10 +936,14 @@ def _build_result(model_score, artifact_score, temporal_score,
         verdict = "REJECTED"
         if "deepfake_detected" not in signals:
             signals.append("synthetic_generation_signal")
+    elif final_score >= THRESHOLD_APPROVE:
+        verdict = "UNDER_REVIEW"
+        if "borderline_needs_review" not in signals:
+            signals.append("borderline_needs_review")
     else:
         verdict = "APPROVED"
         signals = [s for s in signals if s not in
-                   ("synthetic_generation_signal", "deepfake_detected")]
+                   ("synthetic_generation_signal", "deepfake_detected", "borderline_needs_review")]
 
     result = {
         "model":             "lightfakedetect-v2",
