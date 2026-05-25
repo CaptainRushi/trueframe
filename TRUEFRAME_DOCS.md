@@ -299,6 +299,11 @@ User Reports a Post (trust_score ≥ 70 required)
                                           │ Track alert     │
                                           └──────────────────┘
 
+ TERTIARY RISK RANKING (Swin-L)
+   • Runs only when secondary_score is 0.60–0.80
+   • Flags HIGH / ELEVATED risk items for the manual queue
+   • High-risk items are prioritized for community verifiers
+
 ⚠️  FAIL-CLOSED: If AI script errors or times out → post stays UNDER_REVIEW
 
 📊  TRUST PENALTY FOR REMOVAL:
@@ -683,6 +688,7 @@ python3 ai_service/context_verify.py <caption> <file_path>
    └── RESTORE → Post returns to feed ✅
    └── MANUAL → Community verifiers decide 🟡
    └── REMOVE → Post deleted, trust penalized 🔴
+   └── Swin-L risk tiering prioritizes high-risk manual reviews
 
 6. 📊 Dashboard
    └── User sees verification history, trust score trend

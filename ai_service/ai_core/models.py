@@ -109,6 +109,118 @@ class EfficientNetONNXDetector:
             _log(f"[AI-MODEL] Batch inference error: {e}")
             raise RuntimeError(f"EfficientNet batch inference failed: {e}")
 
+class SwinLONNXDetector:
+    def __init__(self, model_path, fake_index=1):
+        """
+        Load the Swin-L ONNX model for tertiary review.
+        """
+        self.model_path = model_path
+        self.fake_index = fake_index
+        self.session = None
+        self.channel_first = True
+        self.input_size = (224, 224)
+
+        if not _HAS_ONNX:
+            _log("[AI-MODEL] WARNING: ONNX Runtime not installed. Swin-L cannot be used.")
+            return
+
+        if os.path.exists(model_path):
+            loaded = False
+            try:
+                self.session = ort.InferenceSession(
+                    model_path,
+                    providers=['CUDAExecutionProvider']
+                )
+                _log(f"[AI-MODEL] Loaded Swin-L with CUDA from {model_path}")
+                loaded = True
+            except Exception as cuda_err:
+                _log(f"[AI-MODEL] Swin-L CUDA loading failed: {cuda_err}. Trying CPU fallback.")
+
+            if not loaded:
+                try:
+                    self.session = ort.InferenceSession(
+                        model_path,
+                        providers=['CPUExecutionProvider']
+                    )
+                    _log(f"[AI-MODEL] Loaded Swin-L with CPU from {model_path}")
+                except Exception as cpu_err:
+                    _log(f"[AI-MODEL] Error loading Swin-L ONNX model on CPU: {cpu_err}")
+        else:
+            _log(f"[AI-MODEL] WARNING: Swin-L model file not found at {model_path}")
+
+        if self.session is not None:
+            self._resolve_input_shape()
+
+    def _resolve_input_shape(self):
+        try:
+            shape = self.session.get_inputs()[0].shape
+            if len(shape) == 4:
+                c_first = isinstance(shape[1], int) and shape[1] in (1, 3)
+                c_last = isinstance(shape[3], int) and shape[3] in (1, 3)
+                if c_first:
+                    self.channel_first = True
+                    h, w = shape[2], shape[3]
+                elif c_last:
+                    self.channel_first = False
+                    h, w = shape[1], shape[2]
+                else:
+                    h, w = shape[2], shape[3]
+                if isinstance(h, int) and isinstance(w, int):
+                    self.input_size = (int(w), int(h))
+        except Exception as e:
+            _log(f"[AI-MODEL] Swin-L input shape detection failed: {e}")
+
+    def preprocess(self, face_crop_bgr):
+        img = cv2.cvtColor(face_crop_bgr, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, self.input_size, interpolation=cv2.INTER_LINEAR)
+        img = img.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img = (img - mean) / std
+        if self.channel_first:
+            img = img.transpose(2, 0, 1)
+        img = np.expand_dims(img, axis=0)
+        return img
+
+    def _softmax(self, logits):
+        logits = logits - np.max(logits)
+        exp = np.exp(logits)
+        return exp / (np.sum(exp) + 1e-9)
+
+    def _extract_score(self, output):
+        arr = np.array(output)
+        if arr.ndim == 0:
+            return float(arr)
+        if arr.ndim == 1:
+            if arr.shape[0] == 1:
+                return float(arr[0])
+            probs = self._softmax(arr)
+            idx = min(max(self.fake_index, 0), probs.shape[0] - 1)
+            return float(probs[idx])
+        vec = arr[0]
+        if vec.ndim == 0:
+            return float(vec)
+        if vec.shape[0] == 1:
+            return float(vec[0])
+        probs = self._softmax(vec)
+        idx = min(max(self.fake_index, 0), probs.shape[0] - 1)
+        return float(probs[idx])
+
+    def predict(self, face_crop_bgr):
+        if self.session is None:
+            _log("[AI-MODEL] Swin-L unavailable. Skipping tertiary review.")
+            return None
+
+        try:
+            input_tensor = self.preprocess(face_crop_bgr)
+            input_name = self.session.get_inputs()[0].name
+            outputs = self.session.run(None, {input_name: input_tensor})
+            score = self._extract_score(outputs[0])
+            return float(np.clip(score, 0.0, 1.0))
+        except Exception as e:
+            _log(f"[AI-MODEL] Swin-L inference error: {e}")
+            return None
+
 class HuggingFaceDeepfakeDetector:
     def __init__(self, model_name="dima806/deepfake_vs_real_image_detection"):
         self.model_name = model_name

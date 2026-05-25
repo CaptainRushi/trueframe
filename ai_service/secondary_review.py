@@ -24,8 +24,16 @@ import cv2
 
 sys.path.append(os.path.dirname(__file__))
 
-from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
+from config import (
+    THRESHOLD_APPROVE,
+    THRESHOLD_REJECT,
+    SWIN_MODEL_PATH,
+    SWIN_FAKE_INDEX,
+    SWIN_HIGH_RISK_THRESHOLD,
+    SWIN_ELEVATED_RISK_THRESHOLD,
+)
 from ai_core.detector import FaceAnalyzer
+from ai_core.models import SwinLONNXDetector
 
 # Secondary review weights (different from primary)
 WEIGHT_FREQUENCY = 0.30
@@ -436,6 +444,7 @@ class SecondaryReviewEngine:
         self.edge_analyzer = EdgeCoherenceAnalyzer()
         self.exif_analyzer = EXIFReverifier()
         self.face_analyzer = FaceAnalyzer()
+        self.swin_detector = SwinLONNXDetector(SWIN_MODEL_PATH, fake_index=SWIN_FAKE_INDEX)
 
     def run(self, file_path: str) -> dict:
         signals_list = []
@@ -443,8 +452,12 @@ class SecondaryReviewEngine:
         # Load image
         image = cv2.imread(file_path)
         if image is None:
-            return self._finalize(0.0, 0.0, 0.0, 0.0, 0.0, 0.1,
-                                  ["media_decode_error"])
+            return self._finalize(
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.1,
+                ["media_decode_error"],
+                None,
+                "UNAVAILABLE"
+            )
 
         # Detect face
         face_crop, rois = self.face_analyzer.get_face_roi(image)
@@ -482,13 +495,38 @@ class SecondaryReviewEngine:
             (WEIGHT_EXIF_RECHECK * exif_score)
         )
 
+        swin_score = None
+        swin_risk_tier = "UNAVAILABLE"
+        if THRESHOLD_APPROVE <= secondary_score < THRESHOLD_REJECT:
+            swin_score, swin_risk_tier, swin_signals = self._run_swin_review(face_crop)
+            signals_list.extend(swin_signals)
+
         return self._finalize(
             freq_score, patch_score, noise_score,
-            edge_score, exif_score, secondary_score, signals_list
+            edge_score, exif_score, secondary_score, signals_list,
+            swin_score, swin_risk_tier
         )
 
+    def _run_swin_review(self, face_crop):
+        if face_crop is None:
+            return None, "UNAVAILABLE", []
+
+        swin_score = self.swin_detector.predict(face_crop)
+        if swin_score is None:
+            return None, "UNAVAILABLE", []
+
+        signals = []
+        if swin_score >= SWIN_HIGH_RISK_THRESHOLD:
+            signals.append("swin_high_risk")
+            return swin_score, "HIGH", signals
+        if swin_score >= SWIN_ELEVATED_RISK_THRESHOLD:
+            signals.append("swin_elevated_risk")
+            return swin_score, "ELEVATED", signals
+        return swin_score, "LOW", signals
+
     def _finalize(self, frequency_score, gan_artifact_score, noise_consistency_score,
-                  edge_coherence_score, exif_score, secondary_score, signals):
+                  edge_coherence_score, exif_score, secondary_score, signals,
+                  swin_score, swin_risk_tier):
         """
         Decision thresholds (same 3-tier as primary):
           secondary_score >= 0.80 -> REMOVE (confirmed deepfake)
@@ -513,6 +551,8 @@ class SecondaryReviewEngine:
             "edge_coherence_score": round(edge_coherence_score, 4),
             "patch_variance_score": round(exif_score, 4),
             "secondary_score": round(secondary_score, 4),
+            "swin_score": None if swin_score is None else round(float(swin_score), 4),
+            "swin_risk_tier": swin_risk_tier,
             "verdict": verdict,
             "signals": unique_signals
         }
@@ -528,6 +568,8 @@ if __name__ == "__main__":
             "edge_coherence_score": 0.0,
             "patch_variance_score": 0.0,
             "secondary_score": 0.1,
+            "swin_score": None,
+            "swin_risk_tier": "UNAVAILABLE",
             "verdict": "REJECTED",
             "signals": ["no_file_provided"]
         }))
@@ -546,6 +588,8 @@ if __name__ == "__main__":
             "edge_coherence_score": 0.0,
             "patch_variance_score": 0.0,
             "secondary_score": 0.1,
+            "swin_score": None,
+            "swin_risk_tier": "UNAVAILABLE",
             "verdict": "REJECTED",
             "signals": [f"engine_error: {str(e)}", "fail_closed"]
         }))

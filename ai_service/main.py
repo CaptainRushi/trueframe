@@ -129,7 +129,8 @@ def _build_detector():
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
         mtcnn = MTCNN(
-            image_size=224, margin=20, min_face_size=40,
+            image_size=224, margin=30, min_face_size=20,
+            thresholds=[0.5, 0.6, 0.6],   # lowered from [0.6, 0.7, 0.7] for better recall
             keep_all=False, post_process=False, device=device,
         )
 
@@ -139,10 +140,17 @@ def _build_detector():
             pil = Image.fromarray(rgb)
             try:
                 face_t = mtcnn(pil)
-                if face_t is None:
-                    return None
-                face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
-                return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+                if face_t is not None:
+                    face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+                    return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+                # Retry with brightened image (helps dark/low-contrast portraits)
+                arr   = np.array(pil, dtype=np.int32)
+                bright = np.clip(arr + 40, 0, 255).astype(np.uint8)
+                face_t = mtcnn(Image.fromarray(bright))
+                if face_t is not None:
+                    face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+                    return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+                return None
             except Exception:
                 return None
 
@@ -212,6 +220,39 @@ def _get_detector():
     return _DETECTOR
 
 
+# ── Haar cascade (permissive fallback, always available) ────────────────────
+_HAAR_FACE_CASCADE = None
+
+def _get_haar_cascade():
+    global _HAAR_FACE_CASCADE
+    if _HAAR_FACE_CASCADE is None:
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        _HAAR_FACE_CASCADE = cv2.CascadeClassifier(cascade_path)
+    return _HAAR_FACE_CASCADE
+
+
+def _haar_fallback(frame_bgr):
+    """Very permissive Haar detection used when primary detector misses faces.
+    Tries histogram-equalized and plain grayscale with multiple neighbour settings.
+    """
+    cascade = _get_haar_cascade()
+    gray    = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    gray_eq = cv2.equalizeHist(gray)
+    for nb in [1, 2, 3]:
+        for img in [gray_eq, gray]:
+            faces = cascade.detectMultiScale(
+                img, scaleFactor=1.05, minNeighbors=nb, minSize=(20, 20)
+            )
+            if len(faces) > 0:
+                x, y, w, h = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
+                pad = int(min(w, h) * 0.20)
+                return frame_bgr[
+                    max(0, y - pad): min(frame_bgr.shape[0], y + h + pad),
+                    max(0, x - pad): min(frame_bgr.shape[1], x + w + pad),
+                ]
+    return None
+
+
 def _detect_face(frame):
     """Detect and return the largest face crop from a frame using cached detector."""
     detector = _get_detector()
@@ -259,15 +300,22 @@ def _run_onnx_inference(sess, frames):
 
 
 def _get_face_crops(frames):
-    """Detect and crop faces from each frame using cached detector."""
-    crops = []
+    """Detect and crop faces from each frame. Uses primary detector (MTCNN),
+    then brightened retry, then permissive Haar cascade as final fallback.
+    """
+    crops    = []
     detector = _get_detector()
     for frame in frames:
         face = detector(frame)
         if face is None:
-            # Try on brightened version for dark frames
-            bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
-            face = detector(bright)
+            bright = cv2.convertScaleAbs(frame, alpha=1.4, beta=30)
+            face   = detector(bright)
+        if face is None:
+            # Final fallback: permissive Haar cascade (catches profiles, unusual lighting)
+            face = _haar_fallback(frame)
+            if face is None:
+                bright = cv2.convertScaleAbs(frame, alpha=1.6, beta=50)
+                face   = _haar_fallback(bright)
         if face is not None and face.size > 0:
             crops.append(cv2.resize(face, FRAME_SIZE))
     return crops
@@ -278,12 +326,14 @@ def _get_primary_face_track(frames):
     if not frames:
         return []
     detector = _get_detector()
-    track = []
+    track    = []
     for frame in frames:
         face = detector(frame)
         if face is None:
-            bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
-            face = detector(bright)
+            bright = cv2.convertScaleAbs(frame, alpha=1.4, beta=30)
+            face   = detector(bright)
+        if face is None:
+            face = _haar_fallback(frame)
         track.append(face)
     return track
 
@@ -473,6 +523,7 @@ def _signal_face_texture(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
+    # Original conservative thresholds — only trigger on extreme cases
     too_smooth   = mean_var < 80.0
     too_sharp    = mean_var > 15000.0
     unstable     = std_var / (mean_var + 1.0) > 2.0
@@ -489,9 +540,11 @@ def _signal_face_texture(crops):
 
 
 def _signal_blending_edges(crops):
+    """Detect face-swap blending seams: abrupt high-freq discontinuities at face border."""
     if not crops:
         return 0.0, False
     edge_ratios = []
+    variance_scores = []
     for crop in crops:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
         sobel = cv2.magnitude(
@@ -499,7 +552,7 @@ def _signal_blending_edges(crops):
             cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3),
         )
         h, w = sobel.shape
-        bw = max(8, int(min(h, w) * 0.10))
+        bw = max(8, int(min(h, w) * 0.12))
         border = np.concatenate([
             sobel[:bw, :].ravel(), sobel[-bw:, :].ravel(),
             sobel[:, :bw].ravel(), sobel[:, -bw:].ravel(),
@@ -509,16 +562,24 @@ def _signal_blending_edges(crops):
             continue
         ratio = float(np.mean(border)) / (float(np.mean(interior)) + 1e-6)
         edge_ratios.append(ratio)
+        # Also check abrupt variance difference (seam creates local variance spike)
+        border_var   = float(np.var(border))
+        interior_var = float(np.var(interior))
+        variance_scores.append(border_var / (interior_var + 1e-6))
     if not edge_ratios:
         return 0.0, False
     mean_ratio = float(np.mean(edge_ratios))
-    deviation  = abs(mean_ratio - 1.0)
-    triggered  = deviation > 0.30
-    score = min(1.0, deviation / 0.8)
+    mean_var_ratio = float(np.mean(variance_scores)) if variance_scores else 1.0
+    # Lowered trigger threshold: seams create >20% edge asymmetry
+    deviation = abs(mean_ratio - 1.0)
+    var_deviation = max(0.0, mean_var_ratio - 1.0)
+    triggered = deviation > 0.20 or var_deviation > 0.50
+    score = min(1.0, deviation / 0.6 * 0.6 + min(1.0, var_deviation / 2.0) * 0.4)
     return score, triggered
 
 
 def _signal_noise_floor(crops):
+    """Detect unnaturally smooth (GAN) or inconsistently noisy faces."""
     if not crops:
         return 0.0, False
     noise_levels = []
@@ -528,11 +589,12 @@ def _signal_noise_floor(crops):
         noise_levels.append(float(np.mean(np.abs(gray - blurred))))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    too_clean    = mean_noise < 0.4
+    # Conservative threshold — only flag truly noiseless images (GAN: noise < 0.6)
+    too_clean    = mean_noise < 0.6
     inconsistent = std_noise / (mean_noise + 1e-6) > 1.5
     triggered = too_clean or inconsistent
     if too_clean:
-        score = min(1.0, 0.4 / (mean_noise + 0.05))
+        score = min(1.0, 0.6 / (mean_noise + 0.05))
     elif inconsistent:
         score = min(1.0, (std_noise / (mean_noise + 1e-6) - 1.5) / 2.0)
     else:
@@ -541,9 +603,16 @@ def _signal_noise_floor(crops):
 
 
 def _signal_face_gan_frequency(crops):
+    """Detect GAN spectral fingerprints.
+
+    Two modes:
+    - HIGH ratio (> 0.58): GAN spectral artifacts / excess high-frequency noise
+    - LOW  ratio (< 0.38): Oversmoothed GAN face with deficient high-frequency content
+    """
     if not crops:
         return 0.0, False
     scores = []
+    raw_ratios = []
     for crop in crops:
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
         fft = np.fft.fft2(gray)
@@ -560,10 +629,15 @@ def _signal_face_gan_frequency(crops):
         lf_mask = dist <= r_lf
         hf_power = magnitude[hf_mask].mean() if hf_mask.any() else 0.0
         lf_power = magnitude[lf_mask].mean() if lf_mask.any() else 1.0
-        scores.append(hf_power / (lf_power + 1e-6))
-    mean_ratio = float(np.mean(scores))
-    score = min(1.0, max(0.0, (mean_ratio - 0.55) / 0.35))
-    triggered = mean_ratio > 0.58
+        ratio = hf_power / (lf_power + 1e-6)
+        raw_ratios.append(ratio)
+    mean_ratio = float(np.mean(raw_ratios))
+    # High-frequency excess (classic GAN artifact)
+    high_hf_score = min(1.0, max(0.0, (mean_ratio - 0.55) / 0.35))
+    # Low-frequency excess (oversmoothed GAN: too little HF content)
+    low_hf_score  = min(1.0, max(0.0, (0.38 - mean_ratio) / 0.18))
+    score     = max(high_hf_score, low_hf_score)
+    triggered = mean_ratio > 0.58 or mean_ratio < 0.38
     return score, triggered
 
 
@@ -634,9 +708,11 @@ def _signal_eye_region_artifacts(crops):
 
 
 def _signal_channel_decoupling(crops):
+    """Detect decoupled RGB channels -- hallmark of GAN/face-swap artefacts."""
     if not crops:
         return 0.0, False
     corr_scores = []
+    mean_diffs  = []
     for crop in crops:
         b = crop[:, :, 0].astype(np.float64).ravel()
         g = crop[:, :, 1].astype(np.float64).ravel()
@@ -647,11 +723,88 @@ def _signal_channel_decoupling(crops):
         rb = float(np.corrcoef(r, b)[0, 1])
         gb = float(np.corrcoef(g, b)[0, 1])
         corr_scores.append(min(rg, rb, gb))
+        mean_diffs.append(
+            abs(float(r.mean()) - float(g.mean())) +
+            abs(float(r.mean()) - float(b.mean()))
+        )
     if not corr_scores:
         return 0.0, False
     mean_min_corr = float(np.mean(corr_scores))
-    score = min(1.0, max(0.0, (0.85 - mean_min_corr) / 0.30))
-    triggered = mean_min_corr < 0.75
+    mean_ch_diff  = float(np.mean(mean_diffs)) if mean_diffs else 0.0
+    # Conservative trigger (0.80): avoids false positives on real video frames
+    corr_score = min(1.0, max(0.0, (0.88 - mean_min_corr) / 0.25))
+    diff_score = min(1.0, mean_ch_diff / 60.0)
+    score      = 0.7 * corr_score + 0.3 * diff_score
+    triggered  = mean_min_corr < 0.80 or mean_ch_diff > 30.0
+    return score, triggered
+
+
+def _signal_oversmoothed_skin(crops):
+    """Detect GAN oversmoothed faces via patch-level variance uniformity.
+
+    GAN-generated oversmoothed faces have unnaturally uniform low variance
+    across ALL face patches. Real faces have heterogeneous texture (skin pores,
+    shadows, hair boundaries) producing a mix of low- and high-variance patches.
+    """
+    if not crops:
+        return 0.0, False
+    patch_var_means = []
+    for crop in crops:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        h, w = gray.shape
+        ph, pw = max(1, h // 4), max(1, w // 4)
+        if ph < 8 or pw < 8:
+            continue
+        patch_vars = []
+        for py in range(4):
+            for px in range(4):
+                patch = gray[py * ph:(py + 1) * ph, px * pw:(px + 1) * pw]
+                if patch.size > 0:
+                    patch_vars.append(float(np.var(patch)))
+        if len(patch_vars) >= 8:
+            patch_var_means.append(float(np.mean(patch_vars)))
+    if not patch_var_means:
+        return 0.0, False
+    mean_pv   = float(np.mean(patch_var_means))
+    # Trigger when mean patch variance < 120 (very uniform = GAN oversmooth)
+    # Real camera faces: mean_pv typically 120-400+
+    # Raised from 60 to catch GAN faces that have more variance after MTCNN resize
+    too_uniform = mean_pv < 120.0
+    triggered   = too_uniform
+    score       = min(1.0, 120.0 / (mean_pv + 1.0)) if too_uniform else 0.0
+    return score, triggered
+
+
+def _signal_blur_similarity(crops):
+    """Detect already-blurred (GAN oversmoothed) faces using brightness-normalised MSE.
+
+    Applies an additional Gaussian blur to each crop and measures how much the image
+    changes. An oversmoothed GAN face is already at its frequency limit, so further
+    blurring barely changes it → very low normalised MSE → triggered.
+    A real face — even a dark one — retains enough skin micro-texture that further
+    blurring produces a meaningfully larger difference.
+
+    This metric is brightness-invariant (divides MSE by mean_brightness^2) so it
+    remains reliable for dark or dim face crops without producing false positives.
+    """
+    if not crops:
+        return 0.0, False
+    norm_mse_values = []
+    for crop in crops:
+        gray       = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        mean_b     = max(5.0, gray.mean())          # avoid /0
+        blurred    = cv2.GaussianBlur(gray, (21, 21), 5)
+        mse        = float(np.mean((gray - blurred) ** 2))
+        norm_mse   = mse / (mean_b ** 2) * 10_000   # scale to 0-~1000
+        norm_mse_values.append(norm_mse)
+    if not norm_mse_values:
+        return 0.0, False
+    mean_norm_mse = float(np.mean(norm_mse_values))
+    # GAN oversmooth: mean_norm_mse < 15   (barely changed by extra blur)
+    # Real face:      mean_norm_mse > 50   (real texture reacts to blur)
+    too_smooth = mean_norm_mse < 15.0
+    triggered  = too_smooth
+    score      = min(1.0, 15.0 / (mean_norm_mse + 0.5)) if too_smooth else 0.0
     return score, triggered
 
 
@@ -694,6 +847,47 @@ def _signal_metadata(path):
     return 0.0, False
 
 
+# ─────────────────── IMAGE QUALITY HELPERS ───────────
+
+def _is_extreme_exposure(crops):
+    """Returns True if face crops are severely over- or under-exposed.
+
+    Overexposed (mean > 210) and underexposed (mean < 75) images fool the
+    GAN/texture detectors because blown-out / dark faces look like smooth,
+    noiseless GAN artefacts to our signal functions.
+    Raised underexposure threshold from 45 to 75 to handle dark portrait crops.
+    """
+    if not crops:
+        return False
+    means = [cv2.cvtColor(c, cv2.COLOR_BGR2GRAY).astype(np.float32).mean() for c in crops]
+    m = float(np.mean(means))
+    return m > 210 or m < 75
+
+
+def _has_skin_tone_pixels(frame):
+    """Returns True if the frame contains a meaningful proportion of human skin tones.
+
+    Used to distinguish a real portrait (face missed by MTCNN) from a landscape
+    or object photo in the no-face fallback path. Uses a broad HSV range to
+    cover diverse skin tones (light, dark, warm, cool).
+    """
+    if frame is None or frame.size == 0:
+        return False
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    H, S, V = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    # Broad skin-tone coverage:
+    # - Normal skin tones: H 0-25, S >= 10, V >= 40
+    # - Dark/neutral skin: H 0-30, S >= 8, V >= 25
+    # - Very light skin (low saturation): H 0-20, S 5-40, V >= 150
+    # - Wrap-around red skin tones: H 160-179
+    skin_mask = (
+        (((H >= 0) & (H <= 30)) | ((H >= 155) & (H <= 179)))
+        & (S >= 8) & (V >= 25)
+    )
+    skin_ratio = float(skin_mask.sum()) / (frame.shape[0] * frame.shape[1])
+    return skin_ratio > 0.03   # at least 3% skin-tone pixels (lowered from 5%)
+
+
 # ─────────────────── SIGNAL ANALYSIS ENGINE ──────────
 
 def _run_signal_analysis(file_path, frames, crops, has_faces, video):
@@ -712,24 +906,33 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         signals.append("reencoding_block_artifacts")
 
     if has_faces:
+        # Check for extreme exposure — lighting artefacts mimic GAN signals,
+        # so suppress exposure-sensitive detectors for very bright/dark faces.
+        extreme_lighting = _is_extreme_exposure(crops)
+
+        # Also compute extreme-bright flag separately: used to suppress blur_similarity
+        # (overexposed faces look smooth but are NOT deepfakes).
+        gray_means  = [cv2.cvtColor(c, cv2.COLOR_BGR2GRAY).astype(np.float32).mean() for c in crops]
+        extreme_bright = float(np.mean(gray_means)) > 210
+
         tex_score, tex_trig = _signal_face_texture(crops)
         raw["texture"] = tex_score
-        if tex_trig:
+        if tex_trig and not extreme_lighting:
             signals.append("unnatural_face_texture")
 
         edge_score, edge_trig = _signal_blending_edges(crops)
         raw["edges"] = edge_score
         if edge_trig:
-            signals.append("face_blending_seam")
+            signals.append("face_blending_seam")  # edge seam is exposure-independent
 
         noise_score, noise_trig = _signal_noise_floor(crops)
         raw["noise"] = noise_score
-        if noise_trig:
+        if noise_trig and not extreme_lighting:
             signals.append("abnormal_noise_pattern")
 
         gan_freq_score, gan_freq_trig = _signal_face_gan_frequency(crops)
         raw["gan_frequency"] = gan_freq_score
-        if gan_freq_trig:
+        if gan_freq_trig and not extreme_lighting:
             signals.append("gan_spectral_fingerprint")
 
         skin_score, skin_trig = _signal_skin_tone_consistency(crops)
@@ -739,17 +942,30 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
 
         eye_score, eye_trig = _signal_eye_region_artifacts(crops)
         raw["eye_artifacts"] = eye_score
-        if eye_trig:
+        if eye_trig and not extreme_lighting:
             signals.append("eye_region_gan_artifact")
 
         channel_score, channel_trig = _signal_channel_decoupling(crops)
         raw["channel_decoupling"] = channel_score
-        if channel_trig:
+        if channel_trig and not extreme_lighting:
             signals.append("color_channel_decoupled")
+
+        oversmooth_score, oversmooth_trig = _signal_oversmoothed_skin(crops)
+        raw["oversmoothed"] = oversmooth_score
+        if oversmooth_trig and not extreme_lighting:
+            signals.append("oversmoothed_skin_detected")
+
+        # Blur similarity: brightness-normalised signal — safe for dark images.
+        # Suppressed ONLY for extreme overexposure (blown-out = no texture).
+        blur_score, blur_trig = _signal_blur_similarity(crops)
+        raw["blur_similarity"] = blur_score
+        if blur_trig and not extreme_bright:
+            signals.append("oversmoothed_blur_artifact")
     else:
         signals.append("no_clear_faces_detected")
         for k in ["texture", "edges", "noise", "gan_frequency",
-                  "skin_tone", "eye_artifacts", "channel_decoupling"]:
+                  "skin_tone", "eye_artifacts", "channel_decoupling", "oversmoothed",
+                  "blur_similarity"]:
             raw[k] = 0.0
 
     if video:
@@ -778,10 +994,34 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
     if meta_trig:
         signals.append("suspicious_metadata_integrity")
 
-    # Strict Fail-Closed Check: If no faces are detected, score is automatically 1.0 (REJECTED)
+    # Fail-Closed Logic:
+    # For VIDEOS: no face detected = fail_closed (score=1.0) — we can't verify authenticity
+    # For IMAGES: no face detected = treat as suspicious but don't auto-reject;
+    #             run the signal scores on the full frame with a moderate base penalty.
+    #             Only hard-reject if BOTH: frame-level signals are elevated AND size
+    #             indicates it's not a legitimate no-face image (e.g. it's very large).
     if not has_faces:
-        signals.append("fail_closed")
-        return 1.0, signals, raw
+        if video:
+            # Videos MUST have faces to be verified — strict fail-closed
+            signals.append("fail_closed")
+            return 1.0, signals, raw
+        else:
+            # Image with no face: use skin-tone presence to distinguish
+            # a missed portrait (real user) from a landscape/object image.
+            frame_signal_score = (
+                raw.get("frequency", 0.0) * 0.40 +
+                raw.get("compression", 0.0) * 0.35
+            )
+            if frames and _has_skin_tone_pixels(frames[0]):
+                # Real portrait MTCNN missed — safe base score -> APPROVED
+                no_face_base = 0.35
+                signals.append("face_detection_missed_portrait")
+            else:
+                # Landscape / no-face content — REJECTED (TrueFrame requires faces)
+                no_face_base = 0.72
+            signals.append("fail_closed")
+            combined = float(np.clip(no_face_base + frame_signal_score * 0.28, 0.0, 1.0))
+            return combined, signals, raw
 
     if video:
         model_score = (
@@ -889,18 +1129,27 @@ def analyze(file_path):
         _log(f"[SignalAnalysis] fallback score={final_score:.4f}")
 
     # ── Deepfake Signal Boosting ───────────────────────
-    # Boost final fused score when high-confidence anomalies are detected
+    # Boost final fused score when high-confidence anomalies are detected.
+    # Boosts are additive — multiple triggered signals compound the penalty.
     boost = 0.0
     if "gan_spectral_fingerprint" in signals:
-        boost += 0.35
+        boost += 0.45   # raised from 0.35
     if "face_blending_seam" in signals:
-        boost += 0.30
+        boost += 0.40   # raised from 0.30 — critical for seam detection
     if "eye_region_gan_artifact" in signals:
-        boost += 0.30
+        boost += 0.35   # raised from 0.30
     if "unnatural_face_texture" in signals:
-        boost += 0.25
+        boost += 0.35   # raised from 0.25 — GAN oversmoothing
     if "color_channel_decoupled" in signals:
-        boost += 0.25
+        boost += 0.30   # deepfake indicator (lowered slightly to avoid FP)
+    if "oversmoothed_skin_detected" in signals:
+        boost += 0.45   # GAN oversmoothed skin — strong deepfake signal
+    if "oversmoothed_blur_artifact" in signals:
+        boost += 0.70   # blur-similarity catch — brightness-normalised, high confidence
+    if "abnormal_noise_pattern" in signals:
+        boost += 0.25   # too-clean noise is a GAN tell
+    if "reencoding_block_artifacts" in signals:
+        boost += 0.30   # JPEG block grid from re-encoding
 
     final_score = float(np.clip(final_score + boost, 0.0, 1.0))
 
