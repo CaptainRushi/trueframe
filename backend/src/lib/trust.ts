@@ -15,19 +15,21 @@ export async function updateProfileTrustScore(userId: string) {
       .eq('id', userId)
       .single();
 
-    const [{ count: total }, { count: real }] = await Promise.all([
+    const [{ count: total }, { count: real }, { count: rejected }] = await Promise.all([
       supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId),
-      supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId).in('final_verdict', ['REAL', 'APPROVED'])
+      supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId).in('final_verdict', ['REAL', 'APPROVED']),
+      supabase.from('verification_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId).in('final_verdict', ['FAKE', 'REJECTED'])
     ]);
 
     const totalUploads = total || 0;
     const verifiedUploads = real || 0;
-    const rejectedUploads = totalUploads - verifiedUploads;
-    const realPercentage = totalUploads > 0 ? Math.round((verifiedUploads / totalUploads) * 100) : 100;
-    const fakePercentage = totalUploads > 0 ? Math.round((rejectedUploads / totalUploads) * 100) : 0;
+    const rejectedUploads = rejected || 0;
+    const resolvedUploads = verifiedUploads + rejectedUploads;
+    const realPercentage = resolvedUploads > 0 ? Math.round((verifiedUploads / resolvedUploads) * 100) : 100;
+    const fakePercentage = resolvedUploads > 0 ? Math.round((rejectedUploads / resolvedUploads) * 100) : 0;
 
     // COMPONENT 1: Verification Rate (0-40 points)
-    const verificationRate = totalUploads > 0 ? (verifiedUploads / totalUploads) : 0.5;
+    const verificationRate = resolvedUploads > 0 ? (verifiedUploads / resolvedUploads) : 0.5;
     const verificationScore = Math.round(verificationRate * 40);
 
     // COMPONENT 2: Account Age (0-20 points)

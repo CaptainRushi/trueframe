@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS secondary_reviews (
     patch_variance_score FLOAT,
     score_breakdown JSONB,
     signals TEXT[],
+    swin_score FLOAT,
+    swin_risk_tier VARCHAR(20)
+        CHECK (swin_risk_tier IN ('LOW', 'ELEVATED', 'HIGH', 'UNAVAILABLE')),
 
     -- Automated decision
     decision VARCHAR(20)
@@ -44,6 +47,11 @@ CREATE TABLE IF NOT EXISTS secondary_reviews (
 -- Add flag weight tracking for abuse prevention
 ALTER TABLE community_flags ADD COLUMN IF NOT EXISTS flag_weight FLOAT DEFAULT 1.0;
 ALTER TABLE community_flags ADD COLUMN IF NOT EXISTS triggered_review BOOLEAN DEFAULT FALSE;
+
+-- Add Swin-L tertiary review fields for manual review risk ranking
+ALTER TABLE secondary_reviews ADD COLUMN IF NOT EXISTS swin_score FLOAT;
+ALTER TABLE secondary_reviews ADD COLUMN IF NOT EXISTS swin_risk_tier VARCHAR(20)
+    CHECK (swin_risk_tier IN ('LOW', 'ELEVATED', 'HIGH', 'UNAVAILABLE'));
 
 -- Indexes for secondary reviews
 CREATE INDEX IF NOT EXISTS idx_secondary_reviews_post ON secondary_reviews(post_id);

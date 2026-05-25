@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Eye } from "lucide-react";
+import { ShieldCheck, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/api";
 
@@ -9,6 +9,8 @@ interface SecondaryReview {
   post_id: string;
   trigger_flag_count: number;
   secondary_score: number;
+  swin_score?: number | null;
+  swin_risk_tier?: string | null;
   decision: string;
   decision_reason: string;
   signals: string[];
@@ -152,6 +154,17 @@ export function ModerationQueue() {
                     <span className="text-sm font-bold truncate">
                       @{review.posts?.profiles?.username}
                     </span>
+                    {review.swin_risk_tier === 'HIGH' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        High Risk
+                      </span>
+                    )}
+                    {review.swin_risk_tier === 'ELEVATED' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400">
+                        Elevated Risk
+                      </span>
+                    )}
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                       review.posts?.profiles?.trust_status === 'TRUSTED' ? 'bg-green-500/10 text-green-500' :
                       review.posts?.profiles?.trust_status === 'AT_RISK' ? 'bg-yellow-500/10 text-yellow-500' :
@@ -166,6 +179,9 @@ export function ModerationQueue() {
                   <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                     <span>Flags: {review.flagCount}</span>
                     <span>AI Score: {Math.round(review.secondary_score * 100)}%</span>
+                    {typeof review.swin_score === 'number' && (
+                      <span>Swin-L: {Math.round(review.swin_score * 100)}%</span>
+                    )}
                     <span>{new Date(review.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>

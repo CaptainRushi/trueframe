@@ -49,6 +49,8 @@ export async function triggerSecondaryReview(postId: string) {
     const result = await runAIScript(aiScriptPath, [tempPath], 120000);
 
     const secondaryScore = result.secondary_score ?? 0;
+    const swinScore = typeof result.swin_score === 'number' ? result.swin_score : null;
+    const swinRiskTier = typeof result.swin_risk_tier === 'string' ? result.swin_risk_tier : null;
 
     // Determine decision
     let decision: string;
@@ -59,6 +61,11 @@ export async function triggerSecondaryReview(postId: string) {
     } else if (secondaryScore >= 0.60) {
       decision = 'MANUAL_REVIEW';
       decisionReason = 'Borderline secondary score — requires manual verification';
+      if (swinRiskTier === 'HIGH') {
+        decisionReason = 'Borderline secondary score; Swin-L flagged high-risk manipulation';
+      } else if (swinRiskTier === 'ELEVATED') {
+        decisionReason = 'Borderline secondary score; Swin-L flagged elevated risk';
+      }
     } else {
       decision = 'RESTORE';
       decisionReason = 'Secondary AI analysis found content to be authentic';
@@ -74,6 +81,8 @@ export async function triggerSecondaryReview(postId: string) {
         noise_consistency_score: result.noise_consistency_score ?? 0,
         edge_coherence_score: result.edge_coherence_score ?? 0,
         patch_variance_score: result.patch_variance_score ?? 0,
+        swin_score: swinScore,
+        swin_risk_tier: swinRiskTier,
         score_breakdown: result,
         signals: result.signals || [],
         decision,
@@ -352,7 +361,7 @@ export async function moderationRoutes(fastify: FastifyInstance) {
         .from('secondary_reviews')
         .select(`
           id, post_id, trigger_flag_count, secondary_score, decision,
-          decision_reason, signals, created_at, completed_at,
+          decision_reason, signals, swin_score, swin_risk_tier, created_at, completed_at,
           posts:post_id (
             id, media_url, media_type, caption, user_id, created_at,
             profiles:user_id (
@@ -382,10 +391,22 @@ export async function moderationRoutes(fastify: FastifyInstance) {
         }
       }
 
+      const riskRank = (review: any) => {
+        if (review.swin_risk_tier === 'HIGH') return 3;
+        if (review.swin_risk_tier === 'ELEVATED') return 2;
+        if (review.swin_risk_tier === 'LOW') return 1;
+        if (typeof review.swin_score === 'number' && review.swin_score >= 0.85) return 2;
+        return 0;
+      };
+
       const enriched = (reviews || []).map((r: any) => ({
         ...r,
         flagCount: flagCounts[r.post_id] || 0
-      }));
+      })).sort((a: any, b: any) => {
+        const riskDelta = riskRank(b) - riskRank(a);
+        if (riskDelta !== 0) return riskDelta;
+        return (b.secondary_score || 0) - (a.secondary_score || 0);
+      });
 
       return { reviews: enriched };
     } catch (error: any) {

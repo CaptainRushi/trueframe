@@ -69,7 +69,7 @@ export async function transparencyRoutes(fastify: FastifyInstance) {
                     .eq('status', 'CONFIRMED'),
                 supabase
                     .from('secondary_reviews')
-                    .select('status, decision, secondary_score, created_at, completed_at, manual_decision, signals')
+                    .select('status, decision, secondary_score, swin_score, swin_risk_tier, created_at, completed_at, manual_decision, signals')
                     .eq('post_id', postId)
                     .maybeSingle()
             ]);
@@ -113,6 +113,8 @@ export async function transparencyRoutes(fastify: FastifyInstance) {
                     status: secondaryReview.status,
                     decision: secondaryReview.decision || secondaryReview.manual_decision || null,
                     secondaryScore: secondaryReview.secondary_score,
+                    swinScore: secondaryReview.swin_score,
+                    swinRiskTier: secondaryReview.swin_risk_tier,
                     signals: secondaryReview.signals || [],
                     triggeredAt: secondaryReview.created_at,
                     completedAt: secondaryReview.completed_at

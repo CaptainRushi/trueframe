@@ -5,7 +5,7 @@ Automated unit and integration testing for `reel_inference.py`.
 
 Tests:
 1. Signal calculation functions (mocked/synthetic frames)
-2. Verdict boundary conditions (binary APPROVED/REJECTED mapping)
+2. Verdict boundary conditions (triage mapping with under-review band)
 3. Integration via CLI execution on real and invalid video files
 """
 
@@ -38,17 +38,17 @@ class TestVideoDetector(unittest.TestCase):
                     self.blocky_frame[y:y+8, x:x+8] = 200
 
     def test_verdict_boundaries(self):
-        """Verify binary classification: score >= 0.60 rejected, score < 0.60 approved."""
+        """Verify triage classification with an under-review band."""
         # 1. Under-approve score (e.g. 0.35) -> APPROVED
         res_low = reel_inference._build_result(0.35, [], 0)
         self.assertEqual(res_low["verdict"], "APPROVED")
         self.assertEqual(res_low["confidence"], "HIGH")
         
-        # 2. Borderline score (e.g. 0.67) -> REJECTED (Previously APPROVED under 0.80 threshold)
+        # 2. Borderline score (e.g. 0.67) -> UNDER_REVIEW
         res_borderline = reel_inference._build_result(0.67, [], 0)
-        self.assertEqual(res_borderline["verdict"], "REJECTED")
-        self.assertEqual(res_borderline["confidence"], "HIGH")
-        self.assertIn("deepfake_detected", res_borderline["signals"])
+        self.assertEqual(res_borderline["verdict"], "UNDER_REVIEW")
+        self.assertEqual(res_borderline["confidence"], "MEDIUM")
+        self.assertIn("borderline_needs_review", res_borderline["signals"])
         
         # 3. High score (e.g. 0.85) -> REJECTED
         res_high = reel_inference._build_result(0.85, [], 0)
@@ -142,9 +142,12 @@ class TestVideoDetector(unittest.TestCase):
         for key in required_keys:
             self.assertIn(key, output)
             
-        # The test video is authentic and should be APPROVED under binary mapping with 0.60 threshold
-        self.assertEqual(output["verdict"], "APPROVED")
-        self.assertEqual(output["confidence"], "HIGH")
+        # The test video is authentic and should be approved or queued for review
+        self.assertIn(output["verdict"], {"APPROVED", "UNDER_REVIEW"})
+        if output["verdict"] == "APPROVED":
+            self.assertEqual(output["confidence"], "HIGH")
+        else:
+            self.assertEqual(output["confidence"], "MEDIUM")
 
     def test_cli_execution_invalid_file(self):
         """Verify CLI execution handles non-existent video path by returning insufficient_frames."""

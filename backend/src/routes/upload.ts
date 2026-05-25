@@ -214,6 +214,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
 
       if (mediaResult.verdict === 'APPROVED') {
         deepfakeVerdict = 'APPROVED';
+      } else if (mediaResult.verdict === 'UNDER_REVIEW') {
+        deepfakeVerdict = 'UNDER_REVIEW';
+        const sigs = mediaResult.signals || [];
+        const reasons = Array.isArray(sigs) ? sigs : [];
+        finalReason = reasons.join(', ') || 'Borderline deepfake score — requires manual review';
       } else {
         deepfakeVerdict = 'REJECTED';
         const sigs = mediaResult.signals || [];
@@ -245,9 +250,11 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       }
 
       // --- 4. COMPUTE FINAL VERDICT ---
-      // Binary decision: APPROVED → REAL, REJECTED → FAKE
+      // Triage decision: APPROVED → REAL, UNDER_REVIEW → UNDER_REVIEW, REJECTED → FAKE
       if (deepfakeVerdict === 'REJECTED' || fakeNewsVerdict === 'REJECTED') {
         finalVerdict = 'FAKE';
+      } else if (deepfakeVerdict === 'UNDER_REVIEW') {
+        finalVerdict = 'UNDER_REVIEW';
       } else if (deepfakeVerdict === 'APPROVED' && (fakeNewsVerdict === 'APPROVED' || fakeNewsVerdict === 'SKIPPED')) {
         finalVerdict = 'REAL';
       } else {
@@ -533,4 +540,3 @@ async function generateContentProof(postId: string, mediaHash: string, userId: s
     console.warn('[PROOF] Content proof generation failed:', e);
   }
 }
-
