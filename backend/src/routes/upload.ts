@@ -198,6 +198,53 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         return reply.code(200).send({ verified: false, reason: 'Invalid AI verdict output' });
       }
 
+      // --- 2b. CONTENT TYPE GATE (AI-Generated & Cartoon blocker) ---
+      // Block non-real-human images before any further processing.
+      const contentType: string | undefined = mediaResult.content_type;
+      const contentTypeScore: number = mediaResult.content_type_score ?? 0;
+
+      if (contentType === 'AI_GENERATED') {
+        const ctReason = 'This image appears to be AI-generated (e.g. Stable Diffusion, Midjourney, DALL-E). TrueFrame only accepts real human photographs.';
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, contentTypeScore,
+          ctReason, isVideo ? 'video' : 'image', 'content-type-classifier', '1.0', 'REJECTED_AI_GENERATED');
+        await updateProfileTrustScore(userId);
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_FAILED',
+          title: 'Upload Blocked — AI-Generated Image',
+          message: ctReason
+        });
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(200).send({
+          verified: false,
+          reason: ctReason,
+          authenticityLabel: 'REJECTED_AI_GENERATED',
+          contentType: 'AI_GENERATED',
+          contentTypeScore
+        });
+      }
+
+      if (contentType === 'CARTOON') {
+        const ctReason = 'Cartoon, illustrated, or animated images are not allowed. TrueFrame only accepts real photographs of people.';
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, contentTypeScore,
+          ctReason, isVideo ? 'video' : 'image', 'content-type-classifier', '1.0', 'REJECTED_CARTOON');
+        await updateProfileTrustScore(userId);
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_FAILED',
+          title: 'Upload Blocked — Cartoon/Illustration',
+          message: ctReason
+        });
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(200).send({
+          verified: false,
+          reason: ctReason,
+          authenticityLabel: 'REJECTED_CARTOON',
+          contentType: 'CARTOON',
+          contentTypeScore
+        });
+      }
+
       const modelScore = mediaResult.model_score ?? 0;
       finalScore = mediaResult.final_score ?? 0;
       const modelName = mediaResult.model ?? 'efficientnet-b0';
@@ -218,7 +265,7 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         deepfakeVerdict = 'UNDER_REVIEW';
         const sigs = mediaResult.signals || [];
         const reasons = Array.isArray(sigs) ? sigs : [];
-        finalReason = reasons.join(', ') || 'Borderline deepfake score — requires manual review';
+        finalReason = reasons.join(', ') || 'Borderline score — undergoing automated AI review';
       } else {
         deepfakeVerdict = 'REJECTED';
         const sigs = mediaResult.signals || [];

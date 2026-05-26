@@ -38,7 +38,7 @@ export async function communityRoutes(fastify: FastifyInstance) {
             const flagWeight = Math.max(0.05, trustScore / 100);
 
             // Validate flag type
-            const validTypes = ['MISINFORMATION', 'MANIPULATED', 'OUT_OF_CONTEXT', 'SPAM', 'OTHER'];
+            const validTypes = ['MISINFORMATION', 'MANIPULATED', 'OUT_OF_CONTEXT', 'SPAM', 'AI_GENERATED', 'CARTOON', 'OTHER'];
             if (!validTypes.includes(flagType)) {
                 return reply.code(400).send({ error: 'Invalid flag type' });
             }
@@ -147,8 +147,8 @@ export async function communityRoutes(fastify: FastifyInstance) {
                     await supabase.from('notifications').insert({
                         user_id: post.user_id,
                         type: 'FLAG_RESULT',
-                        title: 'Content Under Review',
-                        message: `Your post has been flagged by ${totalFlags} community members and is now under secondary AI review.`,
+                        title: 'Content Under Automated Review',
+                        message: `Your post has been reported by ${totalFlags} users and is now undergoing automated AI review. It will be hidden until the review completes.`,
                         related_post_id: postId
                     });
                 }
