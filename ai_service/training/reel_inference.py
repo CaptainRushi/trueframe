@@ -418,12 +418,15 @@ def signal_face_texture_variance(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    too_smooth   = mean_var < 120.0
+    # FIX: Was 120.0 — compressed/streamed video frames have naturally low variance
+    # after H.264/H.265 encoding. Real videos were triggering this falsely.
+    # Lowered to 60.0 to only catch truly GAN-smooth faces.
+    too_smooth   = mean_var < 60.0
     too_sharp    = mean_var > 15000.0
     unstable_var = std_var / (mean_var + 1.0) > 1.8
     triggered = too_smooth or too_sharp or unstable_var
     if too_smooth:
-        score = min(1.0, 100.0 / (mean_var + 1.0))
+        score = min(1.0, 60.0 / (mean_var + 1.0))
     elif too_sharp:
         score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable_var:
@@ -475,11 +478,14 @@ def signal_noise_floor(crops):
         noise_levels.append(float(np.mean(np.abs(gray - blurred))))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    too_clean    = mean_noise < 0.4
+    # FIX: Was 0.4 — H.264/H.265 compressed video frames are inherently clean.
+    # Real phone-recorded videos commonly have mean_noise < 0.4 after encoding.
+    # Lowered threshold to 0.15 to only catch truly noiseless GAN faces.
+    too_clean    = mean_noise < 0.15
     inconsistent = std_noise / (mean_noise + 1e-6) > 1.5
     triggered = too_clean or inconsistent
     if too_clean:
-        score = min(1.0, 0.4 / (mean_noise + 0.05))
+        score = min(1.0, 0.15 / (mean_noise + 0.05))
     elif inconsistent:
         score = min(1.0, (std_noise / (mean_noise + 1e-6) - 1.5) / 2.0)
     else:
@@ -769,18 +775,22 @@ def analyze_video(video_path):
         logger.info(f"[SignalAnalysis] fallback score={final_score:.4f}")
 
     # ── Deepfake Signal Boosting ───────────────────────
-    # Boost final fused score when high-confidence anomalies are detected
+    # FIX: Add boost cap — multiple signals on real compressed video compounded
+    # to reject it. Reduced values and hard cap at 0.40.
     boost = 0.0
     if "gan_spectral_fingerprint" in signals:
-        boost += 0.35
+        boost += 0.15   # was 0.35
     if "face_blending_seam" in signals:
-        boost += 0.30
+        boost += 0.12   # was 0.30
     if "eye_region_gan_artifact" in signals:
-        boost += 0.30
+        boost += 0.12   # was 0.30
     if "unnatural_face_texture" in signals:
-        boost += 0.25
+        boost += 0.10   # was 0.25
     if "color_channel_decoupled" in signals:
-        boost += 0.25
+        boost += 0.10   # was 0.25
+
+    # Hard cap: prevent signal stacking from auto-rejecting real videos
+    boost = min(boost, 0.40)
 
     final_score = round(float(np.clip(final_score + boost, 0.0, 1.0)), 4)
 
