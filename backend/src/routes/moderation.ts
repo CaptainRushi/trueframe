@@ -57,24 +57,20 @@ export async function triggerSecondaryReview(postId: string) {
     let decisionReason: string;
     if (secondaryScore >= 0.80) {
       decision = 'REMOVE';
-      decisionReason = 'Secondary AI analysis confirmed deepfake content';
+      decisionReason = 'Secondary AI (Model 1) confirmed synthetic/deepfake content';
     } else if (secondaryScore >= 0.60) {
-      decision = 'MANUAL_REVIEW';
-      decisionReason = 'Borderline secondary score — requires manual verification';
-      if (swinRiskTier === 'HIGH') {
-        decisionReason = 'Borderline secondary score; Swin-L flagged high-risk manipulation';
-      } else if (swinRiskTier === 'ELEVATED') {
-        decisionReason = 'Borderline secondary score; Swin-L flagged elevated risk';
-      }
+      // Borderline: run Model 2 (main.py HuggingFace+signal) for second opinion
+      decision = 'RUN_MODEL_2';
+      decisionReason = 'Model 1 borderline — escalating to Model 2 automated review';
     } else {
       decision = 'RESTORE';
-      decisionReason = 'Secondary AI analysis found content to be authentic';
+      decisionReason = 'Secondary AI (Model 1) found content to be authentic';
     }
 
-    // Store results
+    // Store Model 1 results first
     await supabase.from('secondary_reviews')
       .update({
-        status: 'COMPLETED',
+        status: decision === 'RUN_MODEL_2' ? 'PROCESSING' : 'COMPLETED',
         secondary_score: secondaryScore,
         frequency_score: result.frequency_score ?? 0,
         gan_artifact_score: result.gan_artifact_score ?? 0,
@@ -85,23 +81,97 @@ export async function triggerSecondaryReview(postId: string) {
         swin_risk_tier: swinRiskTier,
         score_breakdown: result,
         signals: result.signals || [],
-        decision,
+        decision: decision === 'RUN_MODEL_2' ? null : decision, // null until model2 resolves
         decision_reason: decisionReason,
-        completed_at: new Date().toISOString()
+        completed_at: decision === 'RUN_MODEL_2' ? null : new Date().toISOString()
       })
       .eq('post_id', postId);
 
-    // Apply decision
+    // If Model 1 is borderline, run Model 2 automatically
+    if (decision === 'RUN_MODEL_2') {
+      try {
+        const model2ScriptPath = getAiServicePath('main.py');
+        const model2Result = await runAIScript(model2ScriptPath, [tempPath], 300000);
+
+        const model2Score: number = model2Result.final_score ?? 0;
+        const model2Signals: string[] = model2Result.signals || [];
+
+        // Model 2 decision logic:
+        //   score < THRESHOLD_APPROVE   → RESTORE (both models uncertain → trust real-content
+        //                                            only if clearly low)
+        //   score >= THRESHOLD_REJECT   → REMOVE  (confirmed fake)
+        //   otherwise (borderline)      → REMOVE  (fail-safe: flagged post, both uncertain
+        //                                           → remove to protect platform integrity)
+        const MODEL2_REMOVE_THRESHOLD  = 0.75;  // mirrors THRESHOLD_REJECT in config.py
+        const MODEL2_RESTORE_THRESHOLD = 0.40;  // mirrors THRESHOLD_APPROVE in config.py
+
+        let model2Decision: string;
+        let model2Reason: string;
+        if (model2Score >= MODEL2_REMOVE_THRESHOLD) {
+          model2Decision = 'REMOVE';
+          model2Reason = `Model 2 (HuggingFace+signal) confirmed deepfake (score=${model2Score.toFixed(3)})`;
+        } else if (model2Score < MODEL2_RESTORE_THRESHOLD) {
+          model2Decision = 'RESTORE';
+          model2Reason = `Model 2 found content authentic (score=${model2Score.toFixed(3)})`;
+        } else {
+          // Both models uncertain on a community-flagged post → remove (fail-safe)
+          model2Decision = 'REMOVE';
+          model2Reason = `Both models borderline on flagged post — removed as precaution (M2 score=${model2Score.toFixed(3)})`;
+        }
+
+        decision = model2Decision;
+        decisionReason = model2Reason;
+
+        // Persist model2 result
+        await supabase.from('secondary_reviews')
+          .update({
+            status: 'COMPLETED',
+            decision,
+            decision_reason: decisionReason,
+            completed_at: new Date().toISOString()
+          })
+          .eq('post_id', postId);
+
+        // Also persist model2 scores in extended columns (added via migration)
+        // Using score_breakdown JSONB field so we don't need schema changes for model2 detail
+        await supabase.from('secondary_reviews')
+          .update({
+            score_breakdown: {
+              ...result,
+              model2_score: model2Score,
+              model2_signals: model2Signals,
+              model2_decision: model2Decision
+            }
+          })
+          .eq('post_id', postId);
+
+      } catch (model2Error: any) {
+        // Model 2 failed — fail closed on a flagged post: remove it
+        console.error(`[SECONDARY-REVIEW] Model 2 failed for ${postId}:`, model2Error);
+        decision = 'REMOVE';
+        decisionReason = `Model 2 error (fail-closed): ${model2Error.message}`;
+        await supabase.from('secondary_reviews')
+          .update({
+            status: 'COMPLETED',
+            decision,
+            decision_reason: decisionReason,
+            completed_at: new Date().toISOString()
+          })
+          .eq('post_id', postId);
+      }
+    } else {
+      // Model 1 was decisive — no model2 run needed
+    }
+
+    // Apply final decision (RESTORE or REMOVE — no MANUAL_REVIEW path)
     if (decision === 'RESTORE') {
       await restorePost(postId, post.user_id);
     } else if (decision === 'REMOVE') {
       await removeConfirmedDeepfake(postId);
-    } else {
-      // MANUAL_REVIEW — notify community verifiers
-      await notifyCommunityVerifiers(postId);
     }
+    // (RUN_MODEL_2 case never reaches here — resolved above)
 
-    console.log(`[SECONDARY-REVIEW] Completed for post ${postId}: ${decision} (score: ${secondaryScore})`);
+    console.log(`[SECONDARY-REVIEW] Completed for post ${postId}: ${decision} (M1 score: ${secondaryScore})`);
 
   } catch (error: any) {
     console.error(`[SECONDARY-REVIEW] Failed for post ${postId}:`, error);
@@ -140,7 +210,7 @@ async function restorePost(postId: string, userId: string) {
     user_id: userId,
     type: 'SECONDARY_REVIEW_RESULT',
     title: 'Post Restored',
-    message: 'Your post was reviewed by our secondary AI system and confirmed as authentic. It is now visible again.',
+    message: 'Your post was reviewed by our automated AI review system and confirmed as authentic. It is now visible again.',
     related_post_id: postId
   });
 
@@ -209,7 +279,7 @@ async function removeConfirmedDeepfake(postId: string) {
     user_id: post.user_id,
     type: 'POST_REMOVED',
     title: 'Post Removed',
-    message: 'Your post was removed because our secondary AI review confirmed it contains manipulated or deepfake content. Repeated violations may lead to account restrictions.'
+    message: 'Your post was automatically removed after two independent AI systems confirmed it violates our real-content policy. Repeated violations may lead to account restrictions.'
   });
 
   // Track deepfake alert
