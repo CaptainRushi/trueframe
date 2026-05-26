@@ -455,7 +455,9 @@ function shouldFallbackToMain(result: any): boolean {
   return signals.some((sig) =>
     typeof sig === 'string' && (
       sig === 'model_inference_failed' ||
-      sig === 'fail_closed' ||
+      sig === 'fail_closed' ||           // FIX: video fail-closed (no face / insufficient frames) — must fallback
+      sig === 'no_face_detected' ||      // FIX: reel_inference couldn't detect any faces
+      sig === 'insufficient_frames' ||   // FIX: video too short for reel_inference
       sig === 'no_file_provided' ||
       sig.startsWith('engine_error')
     )

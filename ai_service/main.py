@@ -35,6 +35,14 @@ import numpy as np
 import cv2
 from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
 
+# HuggingFace model — lazy-imported so missing deps don't crash startup
+try:
+    from ai_core.models import HuggingFaceDeepfakeDetector as _HFDetectorClass
+    _HF_AVAILABLE = True
+except Exception:
+    _HFDetectorClass = None
+    _HF_AVAILABLE = False
+
 # ─────────────────── CONFIG ──────────────────────────
 MAX_FRAMES          = 20
 FRAME_SIZE          = (224, 224)
@@ -121,6 +129,34 @@ def _normalize_crop(face_bgr):
 
 
 _DETECTOR = None
+
+# ─────────────────── HUGGINGFACE MODEL (fallback) ────
+
+_HF_DETECTOR = None
+
+def _get_hf_detector():
+    """
+    Lazy-initialise the HuggingFace deepfake detector singleton.
+    Returns HuggingFaceDeepfakeDetector instance, or None if unavailable.
+    """
+    global _HF_DETECTOR
+    if _HF_DETECTOR is not None:
+        return _HF_DETECTOR
+    if not _HF_AVAILABLE or _HFDetectorClass is None:
+        _log("[HuggingFace] torch/transformers not installed — HF model unavailable")
+        return None
+    try:
+        _log("[HuggingFace] Loading dima806/deepfake_vs_real_image_detection model...")
+        _HF_DETECTOR = _HFDetectorClass("dima806/deepfake_vs_real_image_detection")
+        if _HF_DETECTOR.model is None:
+            _log("[HuggingFace] Model failed to load — will use signal-only fallback")
+            _HF_DETECTOR = None
+        else:
+            _log("[HuggingFace] Model ready.")
+    except Exception as e:
+        _log(f"[HuggingFace] Detector init failed: {e}")
+        _HF_DETECTOR = None
+    return _HF_DETECTOR
 
 def _build_detector():
     # ── MTCNN ──────────────────────────────────────────
@@ -470,7 +506,8 @@ def _signal_frequency_artifacts(frames):
         scores.append(ratio)
     mean_ratio = float(np.mean(scores))
     score = min(1.0, max(0.0, (mean_ratio - 0.75) / 0.30))
-    triggered = mean_ratio > 0.85
+    # Raised from 0.85 → 0.92: JPEG compression legitimately boosts HF content
+    triggered = mean_ratio > 0.92
     return score, triggered
 
 
@@ -509,7 +546,8 @@ def _signal_block_artifacts(frames):
         return 0.0, False
     mean_ratio = float(np.mean(scores))
     score = min(1.0, max(0.0, mean_ratio * 4.0))
-    triggered = mean_ratio > 0.20
+    # Raised from 0.20 → 0.35: social-media JPEG always has block artifacts
+    triggered = mean_ratio > 0.35
     return score, triggered
 
 
@@ -523,13 +561,14 @@ def _signal_face_texture(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    # Original conservative thresholds — only trigger on extreme cases
-    too_smooth   = mean_var < 80.0
+    # Lowered too_smooth from 80.0 → 50.0: compressed JPEG faces legitimately
+    # have lower Laplacian variance; 50.0 only catches truly AI-smoothed images
+    too_smooth   = mean_var < 50.0
     too_sharp    = mean_var > 15000.0
     unstable     = std_var / (mean_var + 1.0) > 2.0
     triggered = too_smooth or too_sharp or unstable
     if too_smooth:
-        score = min(1.0, 80.0 / (mean_var + 1.0))
+        score = min(1.0, 50.0 / (mean_var + 1.0))
     elif too_sharp:
         score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable:
@@ -766,12 +805,11 @@ def _signal_oversmoothed_skin(crops):
     if not patch_var_means:
         return 0.0, False
     mean_pv   = float(np.mean(patch_var_means))
-    # Trigger when mean patch variance < 120 (very uniform = GAN oversmooth)
-    # Real camera faces: mean_pv typically 120-400+
-    # Raised from 60 to catch GAN faces that have more variance after MTCNN resize
-    too_uniform = mean_pv < 120.0
+    # Lowered from 120.0 → 80.0: beauty-mode / filter apps legitimately produce
+    # low-variance faces that are NOT GAN-generated. Only flag extreme smoothing.
+    too_uniform = mean_pv < 80.0
     triggered   = too_uniform
-    score       = min(1.0, 120.0 / (mean_pv + 1.0)) if too_uniform else 0.0
+    score       = min(1.0, 80.0 / (mean_pv + 1.0)) if too_uniform else 0.0
     return score, triggered
 
 
@@ -1014,11 +1052,14 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             )
             if frames and _has_skin_tone_pixels(frames[0]):
                 # Real portrait MTCNN missed — safe base score -> APPROVED
-                no_face_base = 0.35
+                # FIX: was 0.35 which could still push into UNDER_REVIEW
+                no_face_base = 0.20
                 signals.append("face_detection_missed_portrait")
             else:
-                # Landscape / no-face content — REJECTED (TrueFrame requires faces)
-                no_face_base = 0.72
+                # Landscape / no-face content. TrueFrame requires faces BUT
+                # FIX: was 0.72 which auto-rejected all landscapes. Non-face
+                # images without deepfake signals should not hard-reject.
+                no_face_base = 0.50
             signals.append("fail_closed")
             combined = float(np.clip(no_face_base + frame_signal_score * 0.28, 0.0, 1.0))
             return combined, signals, raw
@@ -1123,33 +1164,66 @@ def analyze(file_path):
         _log(f"[LightFakeDetect] fused score={final_score:.4f} "
              f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
     else:
-        # Fallback to signal analysis only
-        final_score = signal_score
-        signals.append("signal_analysis_fallback")
-        _log(f"[SignalAnalysis] fallback score={final_score:.4f}")
+        # ── Priority 2: HuggingFace pre-trained model ──────
+        hf_detector = _get_hf_detector()
+        hf_score = None
+
+        if hf_detector is not None and has_faces and crops:
+            try:
+                # Limit to 5 crops for inference speed; average P(fake)
+                sample_crops = crops[:5]
+                hf_scores = hf_detector.predict_batch(sample_crops)
+                if hf_scores:
+                    hf_score = float(np.mean(hf_scores))
+                    signals.append("huggingface_model_used")
+                    _log(f"[HuggingFace] P(fake)={hf_score:.4f} "
+                         f"(avg over {len(sample_crops)} crops)")
+            except Exception as hf_err:
+                _log(f"[HuggingFace] inference error: {hf_err}")
+                hf_score = None
+
+        if hf_score is not None:
+            # HF + signal fusion: model dominates (0.70), signals tune (0.30)
+            final_score = 0.70 * hf_score + 0.30 * signal_score
+            _log(f"[HuggingFace] fused score={final_score:.4f} "
+                 f"(hf={hf_score:.4f}, signals={signal_score:.4f})")
+        else:
+            # Pure signal fallback (last resort — no ML model available)
+            final_score = signal_score
+            signals.append("signal_analysis_fallback")
+            _log(f"[SignalAnalysis] fallback score={final_score:.4f}")
 
     # ── Deepfake Signal Boosting ───────────────────────
-    # Boost final fused score when high-confidence anomalies are detected.
-    # Boosts are additive — multiple triggered signals compound the penalty.
+    # When an ML model (ONNX or HF) is active, signals are secondary — use a
+    # tighter cap so they only nudge the model score, not override it.
+    # When running pure signal fallback, allow a slightly larger cap.
+    _hf_active = "huggingface_model_used" in signals
+    _onnx_active = "lightfakedetect_model_used" in signals
+    _model_active = _hf_active or _onnx_active
+
     boost = 0.0
     if "gan_spectral_fingerprint" in signals:
-        boost += 0.45   # raised from 0.35
+        boost += 0.15   # strong GAN signal
     if "face_blending_seam" in signals:
-        boost += 0.40   # raised from 0.30 — critical for seam detection
+        boost += 0.12   # real face edges often trigger at MTCNN crop boundary
     if "eye_region_gan_artifact" in signals:
-        boost += 0.35   # raised from 0.30
+        boost += 0.12
     if "unnatural_face_texture" in signals:
-        boost += 0.35   # raised from 0.25 — GAN oversmoothing
+        boost += 0.08   # lowered: compressed JPEG legitimately has low texture variance
     if "color_channel_decoupled" in signals:
-        boost += 0.30   # deepfake indicator (lowered slightly to avoid FP)
+        boost += 0.08
     if "oversmoothed_skin_detected" in signals:
-        boost += 0.45   # GAN oversmoothed skin — strong deepfake signal
+        boost += 0.08   # lowered: beauty-mode/filter apps legitimately smooth faces
     if "oversmoothed_blur_artifact" in signals:
-        boost += 0.70   # blur-similarity catch — brightness-normalised, high confidence
+        boost += 0.08   # lowered: was the biggest FP offender
     if "abnormal_noise_pattern" in signals:
-        boost += 0.25   # too-clean noise is a GAN tell
+        boost += 0.06
     if "reencoding_block_artifacts" in signals:
-        boost += 0.30   # JPEG block grid from re-encoding
+        boost += 0.06   # most real social-media images are JPEG re-encoded
+
+    # Hard cap: signals must not override a model verdict
+    # — tighter cap (0.20) when ML model is in use, wider (0.35) for pure signal path
+    boost = min(boost, 0.20 if _model_active else 0.35)
 
     final_score = float(np.clip(final_score + boost, 0.0, 1.0))
 

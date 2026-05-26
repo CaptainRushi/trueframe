@@ -18,3 +18,8 @@ onnxruntime>=1.16.0
 #   pip install facenet-pytorch   ← MTCNN (recommended, most accurate)
 #   pip install mediapipe         ← fallback if MTCNN unavailable
 # Both are optional; Haar cascade fallback always available via OpenCV
+
+# HuggingFace deepfake detector — used as ML fallback when ONNX model is absent.
+# Optional: service degrades gracefully to signal-only mode if not installed.
+torch>=2.0.0
+transformers>=4.35.0
