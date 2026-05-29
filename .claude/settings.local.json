@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "Bash(curl:*)",
+      "Bash(npx vite:*)",
+      "Bash(grep:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "code-review-graph"
+  ],
+  "enableAllProjectMcpServers": true
+}

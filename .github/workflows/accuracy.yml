@@ -1,0 +1,37 @@
+name: TrueFrame Accuracy Gate
+
+on:
+  push:
+    paths:
+      - 'verified-stream/ai_service/**'
+      - 'test_accuracy.py'
+  pull_request:
+    paths:
+      - 'verified-stream/ai_service/**'
+      - 'test_accuracy.py'
+
+jobs:
+  accuracy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install AI service deps
+        run: pip install -r verified-stream/ai_service/requirements.txt
+
+      - name: Download auto-fetchable test media
+        run: python verified-stream/ai_service/download_test_media.py
+
+      - name: Run 100-media accuracy test
+        run: python test_accuracy.py --fail-threshold 0.80 --quiet
+
+      - name: Upload results JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test_results_100.json
