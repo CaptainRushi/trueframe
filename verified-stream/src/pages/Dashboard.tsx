@@ -1,0 +1,518 @@
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/ui/use-toast";
+import {
+    ShieldCheck,
+    ShieldAlert,
+    AlertCircle,
+    BarChart3,
+    History,
+    TrendingUp,
+    TrendingDown,
+    Clock,
+    Loader2,
+    CheckCircle2,
+    XCircle,
+    AlertTriangle,
+    Info,
+    ShieldX,
+    Award,
+    Fingerprint,
+    Star,
+    ArrowRight
+} from "lucide-react";
+import { Link } from "react-router-dom";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { TrustShield } from "@/components/ui/TrustShield";
+
+interface TrendPoint {
+    date: string;
+    trustScore: number;
+}
+
+interface DashboardStats {
+    totalUploads: number;
+    verifiedUploads: number;
+    rejectedUploads: number;
+    realPercentage: number;
+    fakePercentage: number;
+    trustScore: number;
+    status: "TRUSTED" | "AT_RISK" | "UNDER_REVIEW" | "NEW_USER";
+}
+
+interface UploadHistoryItem {
+    id: string;
+    created_at: string;
+    verdict: "REAL" | "FAKE" | "REJECTED";
+    score: number;
+    reason: string | null;
+    media_type: "image" | "video";
+}
+
+import { BACKEND_URL } from "@/lib/api";
+
+export default function Dashboard() {
+    const [stats, setStats] = useState<DashboardStats | null>(null);
+    const [history, setHistory] = useState<UploadHistoryItem[]>([]);
+    const [trend, setTrend] = useState<TrendPoint[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const { toast } = useToast();
+
+    useEffect(() => {
+        fetchDashboardData();
+    }, []);
+
+    const fetchDashboardData = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("Not authenticated");
+
+            // Fetch stats
+            const statsResponse = await fetch(
+                `${BACKEND_URL}/api/dashboard/stats`,
+                {
+                    headers: { 'Authorization': `Bearer ${session.access_token}` }
+                }
+            );
+
+            if (!statsResponse.ok) {
+                throw new Error("Failed to fetch dashboard statistics");
+            }
+
+            const statsData = await statsResponse.json();
+            setStats(statsData);
+
+            // Fetch history
+            const historyResponse = await fetch(
+                `${BACKEND_URL}/api/dashboard/history`,
+                {
+                    headers: { 'Authorization': `Bearer ${session.access_token}` }
+                }
+            );
+
+            if (!historyResponse.ok) {
+                throw new Error("Failed to fetch upload history");
+            }
+
+            const historyData = await historyResponse.json();
+            setHistory(historyData.history || []);
+
+            // Fetch trend
+            try {
+                const trendResponse = await fetch(
+                    `${BACKEND_URL}/api/dashboard/trend`,
+                    {
+                        headers: { 'Authorization': `Bearer ${session.access_token}` }
+                    }
+                );
+                if (trendResponse.ok) {
+                    const trendData = await trendResponse.json();
+                    setTrend(trendData.trend || []);
+                }
+            } catch (trendErr) {
+                console.warn('Trend data fetch failed:', trendErr);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Unknown error occurred");
+            console.error("Dashboard fetch error:", err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getStatusConfig = (status: DashboardStats["status"]) => {
+        switch (status) {
+            case "TRUSTED":
+                return {
+                    icon: ShieldCheck,
+                    color: "text-green-500",
+                    bgColor: "bg-green-500/10",
+                    borderColor: "border-green-500/30",
+                    label: "Trusted Creator",
+                    description: "Excellent track record. Keep up the great work!",
+                };
+            case "AT_RISK":
+                return {
+                    icon: ShieldAlert,
+                    color: "text-yellow-500",
+                    bgColor: "bg-yellow-500/10",
+                    borderColor: "border-yellow-500/30",
+                    label: "At Risk",
+                    description: "Higher than average rejection rate. Be careful.",
+                };
+            case "UNDER_REVIEW":
+                return {
+                    icon: ShieldX,
+                    color: "text-red-500",
+                    bgColor: "bg-red-500/10",
+                    borderColor: "border-red-500/30",
+                    label: "Under Review",
+                    description: "Too many fake attempts. Exposure limited.",
+                };
+            default:
+                return {
+                    icon: Info,
+                    color: "text-blue-500",
+                    bgColor: "bg-blue-500/10",
+                    borderColor: "border-blue-500/30",
+                    label: "New Creator",
+                    description: "Establish your trust by uploading real content.",
+                };
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-background">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                    <p className="text-muted-foreground animate-pulse">Computing Trust Data...</p>
+                </div>
+            </div>
+        );
+    }
+
+    const statusConfig = stats ? getStatusConfig(stats.status) : getStatusConfig("NEW_USER");
+
+    return (
+        <div className="min-h-screen bg-background pb-20 md:pb-6">
+            <div className="w-full p-4 sm:p-6 md:p-8 pt-4">
+                {/* Header */}
+                <header className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div>
+                        <h1 className="text-2xl sm:text-4xl font-black tracking-tight mb-2">My Trust Dashboard</h1>
+                        <p className="text-muted-foreground uppercase text-xs font-bold tracking-widest">
+                            Real-time verification metrics & historical logs
+                        </p>
+                    </div>
+
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className={`${statusConfig.bgColor} ${statusConfig.borderColor} border rounded-2xl p-4 flex items-center gap-4 max-w-sm`}
+                    >
+                        <div className={`p-3 rounded-xl bg-background shadow-sm ${statusConfig.color}`}>
+                            <statusConfig.icon className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <p className={`text-sm font-black uppercase tracking-tight ${statusConfig.color}`}>{statusConfig.label}</p>
+                            <p className="text-[10px] text-muted-foreground leading-tight">{statusConfig.description}</p>
+                        </div>
+                    </motion.div>
+                </header>
+
+                {error && (
+                    <div className="mb-8 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-xl flex items-center gap-3">
+                        <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                        <p className="text-sm font-medium">{error}</p>
+                    </div>
+                )}
+
+                {/* Main Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-10">
+                    {/* Trust Score Card — replaces old Integrity Score */}
+                    <motion.div
+                        whileHover={{ y: -4 }}
+                        className="bg-card rounded-[2rem] border border-border p-6 shadow-sm"
+                    >
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-primary/5">
+                                <TrustShield trustScore={stats?.trustScore ?? 50} status={stats?.status || 'NEW_USER'} size="lg" showScore={false} showTooltip={false} />
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <p className="text-xs font-bold uppercase text-muted-foreground tracking-widest">Trust Score</p>
+                            <div className="flex items-end gap-2">
+                                <p className="text-3xl font-black">{stats?.trustScore ?? 50}</p>
+                                <span className="text-xs font-bold text-muted-foreground mb-1">/100</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground italic">Weighted trust composite</p>
+                        </div>
+                    </motion.div>
+                    <StatCard
+                        title="Verified Real"
+                        value={stats?.verifiedUploads.toString() || "0"}
+                        subtitle="Successful uploads"
+                        icon={CheckCircle2}
+                        color="green"
+                    />
+                    <StatCard
+                        title="Fake Uploads"
+                        value={stats?.rejectedUploads.toString() || "0"}
+                        subtitle="Deepfakes detected"
+                        icon={ShieldAlert}
+                        trend={stats?.rejectedUploads && stats.rejectedUploads > 0 ? "DOWN" : "STABLE"}
+                        color="red"
+                    />
+                </div>
+
+                {/* Trust Level & Creator Program */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                    {/* Trust Level */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-card rounded-[2rem] border border-border p-6 shadow-sm"
+                    >
+                        <div className="flex items-center gap-3 mb-4">
+                            <Star className="w-5 h-5 text-primary" />
+                            <h3 className="text-sm font-black uppercase tracking-widest">Trust Level</h3>
+                        </div>
+                        <div className="space-y-3">
+                            {[
+                                { level: "Trusted Creator", range: "90-100", color: "bg-green-500", active: (stats?.trustScore ?? 0) >= 90 },
+                                { level: "Reliable User", range: "70-89", color: "bg-blue-500", active: (stats?.trustScore ?? 0) >= 70 && (stats?.trustScore ?? 0) < 90 },
+                                { level: "Normal User", range: "50-69", color: "bg-gray-400", active: (stats?.trustScore ?? 0) >= 50 && (stats?.trustScore ?? 0) < 70 },
+                                { level: "Suspicious", range: "30-49", color: "bg-yellow-500", active: (stats?.trustScore ?? 0) >= 30 && (stats?.trustScore ?? 0) < 50 },
+                                { level: "High Risk", range: "0-29", color: "bg-red-500", active: (stats?.trustScore ?? 0) < 30 },
+                            ].map((item) => (
+                                <div key={item.level} className={`flex items-center gap-3 p-2 rounded-xl transition-colors ${item.active ? 'bg-primary/5 border border-primary/20' : ''}`}>
+                                    <div className={`w-3 h-3 rounded-full ${item.color} ${item.active ? 'ring-2 ring-offset-2 ring-offset-background ring-current' : 'opacity-40'}`} />
+                                    <span className={`text-sm font-medium flex-1 ${item.active ? 'font-bold text-foreground' : 'text-muted-foreground'}`}>{item.level}</span>
+                                    <span className="text-xs text-muted-foreground">{item.range}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </motion.div>
+
+                    {/* Creator Program CTA */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-[2rem] border border-primary/20 p-6 shadow-sm flex flex-col justify-between"
+                    >
+                        <div>
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+                                    <Award className="w-6 h-6 text-primary" />
+                                </div>
+                            </div>
+                            <h3 className="text-lg font-black mb-2">Verified Creator Program</h3>
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Earn the Verified Authentic Creator badge. Get higher visibility, priority verification, and community verifier status.
+                            </p>
+                            <div className="space-y-2 mb-4">
+                                <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle2 className={`w-4 h-4 ${(stats?.trustScore ?? 0) >= 85 ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                    <span>Trust Score 85+ ({stats?.trustScore ?? 0}/85)</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle2 className={`w-4 h-4 ${(stats?.totalUploads ?? 0) >= 10 ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                    <span>10+ uploads ({stats?.totalUploads ?? 0}/10)</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <CheckCircle2 className={`w-4 h-4 ${(stats?.realPercentage ?? 0) >= 90 ? 'text-green-500' : 'text-muted-foreground'}`} />
+                                    <span>90%+ authenticity rate ({stats?.realPercentage ?? 0}%/90%)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <Link
+                            to="/creator"
+                            className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+                        >
+                            View Creator Program
+                            <ArrowRight className="w-4 h-4" />
+                        </Link>
+                    </motion.div>
+                </div>
+
+                {/* Trust Score Trend Chart */}
+                {trend.length > 1 && (
+                    <section className="bg-card rounded-[2rem] border border-border p-4 sm:p-8 mb-8 sm:mb-10">
+                        <h3 className="text-xl font-black mb-6 flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-primary" />
+                            Trust Score Over Time
+                        </h3>
+                        <div className="h-48 sm:h-64 w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={trend} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                                    <defs>
+                                        <linearGradient id="trustGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                                    <XAxis
+                                        dataKey="date"
+                                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                        tickLine={false}
+                                        axisLine={false}
+                                    />
+                                    <YAxis
+                                        domain={[0, 100]}
+                                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                                        tickLine={false}
+                                        axisLine={false}
+                                    />
+                                    <RechartsTooltip
+                                        contentStyle={{
+                                            background: 'hsl(var(--card))',
+                                            border: '1px solid hsl(var(--border))',
+                                            borderRadius: '12px',
+                                            fontSize: '12px',
+                                            fontWeight: 600,
+                                        }}
+                                        labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="trustScore"
+                                        stroke="hsl(142, 76%, 36%)"
+                                        strokeWidth={2.5}
+                                        fill="url(#trustGradient)"
+                                        dot={{ r: 3, fill: 'hsl(142, 76%, 36%)', strokeWidth: 0 }}
+                                        activeDot={{ r: 5, fill: 'hsl(142, 76%, 36%)', strokeWidth: 2, stroke: '#fff' }}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </section>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                    {/* Distribution Chart / Visualization Area */}
+                    <div className="lg:col-span-3 space-y-8">
+                        <section className="bg-card rounded-[2rem] border border-border p-4 sm:p-8">
+                            <h3 className="text-xl font-black mb-6 flex items-center gap-2">
+                                <BarChart3 className="w-5 h-5 text-primary" />
+                                Content Authenticity
+                            </h3>
+
+                            <div className="space-y-8">
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-end">
+                                        <p className="text-sm font-bold uppercase text-muted-foreground tracking-widest">Real Content ({stats?.verifiedUploads || 0})</p>
+                                        <p className="text-2xl font-black">{stats?.realPercentage}%</p>
+                                    </div>
+                                    <div className="h-4 bg-muted rounded-full overflow-hidden">
+                                        <motion.div
+                                            initial={{ width: 0 }}
+                                            animate={{ width: `${stats?.realPercentage}%` }}
+                                            className="h-full bg-green-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-end">
+                                        <p className="text-sm font-bold uppercase text-muted-foreground tracking-widest">Fake Content ({stats?.rejectedUploads || 0})</p>
+                                        <p className="text-2xl font-black">{stats?.fakePercentage}%</p>
+                                    </div>
+                                    <div className="h-4 bg-muted rounded-full overflow-hidden">
+                                        <motion.div
+                                            initial={{ width: 0 }}
+                                            animate={{ width: `${stats?.fakePercentage}%` }}
+                                            className="h-full bg-destructive"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-border grid grid-cols-3 gap-2 sm:gap-4">
+                                <div className="text-center p-4 bg-muted/30 rounded-2xl">
+                                    <p className="text-2xl font-black">{stats?.totalUploads}</p>
+                                    <p className="text-[10px] font-bold uppercase text-muted-foreground">Attempts</p>
+                                </div>
+                                <div className="text-center p-4 bg-muted/30 rounded-2xl">
+                                    <p className="text-2xl font-black text-green-500">{stats?.verifiedUploads}</p>
+                                    <p className="text-[10px] font-bold uppercase text-muted-foreground">Real</p>
+                                </div>
+                                <div className="text-center p-4 bg-muted/30 rounded-2xl">
+                                    <p className="text-2xl font-black text-destructive">{stats?.rejectedUploads}</p>
+                                    <p className="text-[10px] font-bold uppercase text-muted-foreground">Fake</p>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+
+                    {/* History Sidebar */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <section className="bg-card rounded-[2rem] border border-border p-6 h-full flex flex-col">
+                            <h3 className="text-xl font-black mb-6 flex items-center gap-2">
+                                <History className="w-5 h-5 text-primary" />
+                                Recent Logs
+                            </h3>
+
+                            <div className="space-y-4 flex-grow">
+                                {history.length > 0 ? (
+                                    history.map((item) => (
+                                        <div
+                                            key={item.id}
+                                            className="p-4 rounded-2xl border border-border/50 bg-muted/10 hover:bg-muted/30 transition-colors flex items-center gap-4"
+                                        >
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.verdict === 'REAL' ? 'bg-green-500/10 text-green-500' : 'bg-destructive/10 text-destructive'
+                                                }`}>
+                                                {item.verdict === 'REAL' ? <CheckCircle2 className="w-5 h-5" /> : <ShieldX className="w-5 h-5" />}
+                                            </div>
+                                            <div className="min-w-0 flex-grow">
+                                                <div className="flex justify-between items-start mb-0.5">
+                                                    <p className="text-sm font-black uppercase tracking-tight truncate">
+                                                        {item.verdict === 'REAL' ? 'Approved' : 'Blocked'}
+                                                    </p>
+                                                    <p className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                                                        {new Date(item.created_at).toLocaleDateString()}
+                                                    </p>
+                                                </div>
+                                                <p className="text-[10px] text-muted-foreground truncate italic">
+                                                    {item.reason || `Score: ${item.score.toFixed(4)}`}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center py-20 text-center opacity-40">
+                                        <Clock className="w-10 h-10 mb-2" />
+                                        <p className="text-sm font-bold">No logs yet</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <button className="mt-6 w-full py-4 text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
+                                View Full Audit Trail
+                            </button>
+                        </section>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function StatCard({ title, value, subtitle, icon: Icon, trend, color }: any) {
+    const colorClasses: any = {
+        primary: "text-primary bg-primary/5",
+        green: "text-green-500 bg-green-500/5",
+        red: "text-destructive bg-destructive/5"
+    };
+
+    return (
+        <motion.div
+            whileHover={{ y: -4 }}
+            className="bg-card rounded-[2rem] border border-border p-6 shadow-sm"
+        >
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 ${colorClasses[color]}`}>
+                <Icon className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+                <p className="text-xs font-bold uppercase text-muted-foreground tracking-widest">{title}</p>
+                <div className="flex items-end gap-2">
+                    <p className="text-3xl font-black">{value}</p>
+                    {trend && (
+                        <div className={`mb-1 flex items-center text-[10px] font-bold ${trend === 'UP' ? 'text-green-500' : 'text-destructive'}`}>
+                            {trend === 'UP' ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                            {trend}
+                        </div>
+                    )}
+                </div>
+                <p className="text-[10px] text-muted-foreground italic">{subtitle}</p>
+            </div>
+        </motion.div>
+    );
+}

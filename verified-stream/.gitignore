@@ -1,0 +1,62 @@
+# Environment Variables
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Upload directories
+uploads/
+storage/
+backend/uploads/
+backend/storage/
+tmp/
+temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+ai_service/__pycache__/
+ai_service/*.pyc
+
+# AI Models (large files)
+ai_service/models/*.onnx
+ai_service/models/*.h5
+ai_service/models/*.pb
+
+# Redis
+dump.rdb
+
+# Test files
+test_photo.png
+sample_upload.mp4
+
+# Antigravity/Graphify output
+graphify-out/
+scratch/
