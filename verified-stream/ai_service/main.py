@@ -158,6 +158,41 @@ def _get_hf_detector():
         _HF_DETECTOR = None
     return _HF_DETECTOR
 
+# ── Second model: GAN/AI-generated image detector ─────────────────────────────
+# dima806 = trained on FaceForensics++ face-swap deepfakes (good for videos/reels)
+# prithivMLmods = ViT trained on GAN/SD/MJ-generated images (good for static fakes)
+# Together they cover both categories of deepfakes on the platform.
+_GAN_DETECTOR = None
+_GAN_DETECTOR_FAILED = False   # set True after first failure to avoid repeated load attempts
+
+def _get_gan_detector():
+    """
+    Lazy-initialise the GAN/AI-image-specific detector singleton.
+    This is a SUPPLEMENTARY model — failure is gracefully handled.
+    """
+    global _GAN_DETECTOR, _GAN_DETECTOR_FAILED
+    if _GAN_DETECTOR is not None:
+        return _GAN_DETECTOR
+    if _GAN_DETECTOR_FAILED:
+        return None
+    if not _HF_AVAILABLE or _HFDetectorClass is None:
+        return None
+    try:
+        _log("[GAN-Detector] Loading prithivMLmods/Deep-Fake-Detector-v2-Model...")
+        _GAN_DETECTOR = _HFDetectorClass("prithivMLmods/Deep-Fake-Detector-v2-Model")
+        if _GAN_DETECTOR.model is None:
+            _log("[GAN-Detector] Model failed to load — GAN detection will use signal fallback")
+            _GAN_DETECTOR = None
+            _GAN_DETECTOR_FAILED = True
+        else:
+            _log("[GAN-Detector] GAN detector ready.")
+    except Exception as e:
+        _log(f"[GAN-Detector] Init failed ({e}) — skipping GAN secondary model")
+        _GAN_DETECTOR = None
+        _GAN_DETECTOR_FAILED = True
+    return _GAN_DETECTOR
+
+
 def _build_detector():
     # ── MTCNN ──────────────────────────────────────────
     try:
@@ -1447,58 +1482,139 @@ def analyze(file_path):
         # ── Priority 2: HuggingFace pre-trained model ──────
         hf_detector = _get_hf_detector()
         hf_score = None
+        hf_temporal_score = None  # temporal variance across frames (video only)
 
         if hf_detector is not None and has_faces and crops:
             try:
-                # Limit to 5 crops for inference speed; average P(fake)
-                sample_crops = crops[:5]
-                hf_scores = hf_detector.predict_batch(sample_crops)
-                if hf_scores:
-                    hf_score = float(np.mean(hf_scores))
+                if video:
+                    # VIDEO: sample more crops for temporal analysis
+                    # Use up to 10 crops spread across the video
+                    n_sample = min(10, len(crops))
+                    step = max(1, len(crops) // n_sample)
+                    sample_crops = crops[::step][:n_sample]
+                    hf_scores = hf_detector.predict_batch(sample_crops)
+                    if hf_scores:
+                        hf_score = float(np.mean(hf_scores))
+                        # Temporal variance: real videos have consistent P(fake) per frame
+                        # Deepfakes flicker because the swap isn't temporally stable
+                        # Threshold 0.22: stock footage with scene cuts can reach 0.15-0.20
+                        # Genuine deepfakes flip dramatically (std > 0.22) frame-to-frame
+                        if len(hf_scores) >= 4:
+                            hf_temporal_score = float(np.std(hf_scores))
+                            # Require both high temporal variance AND elevated mean score
+                            # to avoid false positives from scene cuts in stock footage
+                            if hf_temporal_score > 0.22 and hf_score >= 0.45:
+                                signals.append("hf_temporal_instability")
+                                _log(f"[HuggingFace] temporal std={hf_temporal_score:.4f} "
+                                     f"mean={hf_score:.4f} (>0.22 + mean>=0.45 = deepfake instability)")
+                            elif hf_temporal_score > 0.22:
+                                _log(f"[HuggingFace] temporal std={hf_temporal_score:.4f} HIGH "
+                                     f"but mean={hf_score:.4f} too low — scene cuts, not deepfake")
+                        # Max-score: a single frame with very high P(fake) is suspicious
+                        # Only flag if the AVERAGE is also elevated (otherwise it's one bad frame)
+                        hf_max_score = float(np.max(hf_scores))
+                        if hf_max_score > 0.85 and hf_score >= 0.55:
+                            signals.append("hf_high_confidence_frame")
+                            _log(f"[HuggingFace] max frame score={hf_max_score:.4f} avg={hf_score:.4f} (>0.85 + avg>=0.55)")
+                        elif hf_max_score > 0.85:
+                            _log(f"[HuggingFace] max frame score={hf_max_score:.4f} but avg={hf_score:.4f} too low — not flagged")
+                        signals.append("huggingface_model_used")
+                        _log(f"[HuggingFace] video P(fake)={hf_score:.4f} "
+                             f"max={hf_max_score:.4f} "
+                             f"(avg over {len(sample_crops)} crops)")
+                else:
+                    # IMAGE: run dima806 on full image and on face crops
+                    hf_full_score = hf_detector.predict(frames[0]) if (frames and frames[0] is not None) else 0.0
+                    sample_crops = crops[:5]
+                    hf_scores = hf_detector.predict_batch(sample_crops)
+                    hf_crop_score = float(np.mean(hf_scores)) if hf_scores else 0.0
+                    
+                    hf_score = hf_full_score
                     signals.append("huggingface_model_used")
-                    _log(f"[HuggingFace] P(fake)={hf_score:.4f} "
-                         f"(avg over {len(sample_crops)} crops)")
+                    _log(f"[HuggingFace] Image P(fake): full={hf_full_score:.4f}, crop={hf_crop_score:.4f} (avg over {len(sample_crops)} crops)")
+                    
+                    # Smart Full/Crop Fusion:
+                    # Real portraits have full_prob < 0.01, StyleGAN fakes have full_prob >= 0.04.
+                    # Crop score >= 0.75 reliably indicates fake face structure.
+                    if hf_full_score >= 0.04 and hf_crop_score >= 0.75:
+                        hf_score = max(hf_full_score, 0.75)
+                        signals.append("gan_ensemble_model_used")
+                        _log(f"[HuggingFace] Smart Fusion: full={hf_full_score:.4f}, crop={hf_crop_score:.4f} -> REJECTED")
+
             except Exception as hf_err:
                 _log(f"[HuggingFace] inference error: {hf_err}")
                 hf_score = None
 
         if hf_score is not None:
-            # ── HF confidence-corroboration adjustment ─────────────────────
-            # dima806 is biased toward labeling professional stock photos as fake.
-            # If HF says fake (>= 0.65) but NO genuinely deepfake-specific signals
-            # corroborate it, apply a heavy penalty and ignore signal_score
-            # (signal analysis also rates professional photos highly).
-            #
-            # Only VIDEO-specific signals are reliable deepfake indicators for images:
-            #   - skin_tone_instability: face-swap creates color inconsistency
-            #   - temporal_face_distortion: deepfake video temporal artifacts
-            #   - facial_expression_inconsistency: deepfake video expression mismatch
-            #
-            # Excluded from DEEPFAKE_SPECIFIC:
-            #   - oversmoothed_skin_detected: triggers on beauty filters, portrait mode
-            #   - oversmoothed_blur_artifact:  triggers on bokeh, iPhone portrait mode
-            #   - gan_spectral_fingerprint:    triggers on studio flash and JPEG artifacts
-            DEEPFAKE_SPECIFIC = {
-                "skin_tone_instability",
-                "temporal_face_distortion",
-                "facial_expression_inconsistency",
-            }
-            strong_corr = len(set(signals) & DEEPFAKE_SPECIFIC)
+            if video:
+                # ── VIDEO: stricter fusion — signals are very reliable for deepfake reels
+                # The HF model sees individual frames without temporal context.
+                # For videos, trust signals more (40%) and add temporal variance bonus.
+                # Deepfake signals on videos (skin_tone_instability, temporal_face_distortion)
+                # are MUCH more reliable than on still images.
+                video_signal_weight = 0.45
+                video_model_weight = 0.55
 
-            if hf_score >= 0.65 and strong_corr == 0:
-                # Heavy penalty: dima806 is firing on professional photography.
-                # -0.52 penalty: hf_score=0.91 -> 0.39 (APPROVED).
-                # Ignore signal_score (also biased by studio color/processing artifacts).
-                hf_adjusted = float(np.clip(hf_score - 0.52, 0.0, 1.0))
-                final_score = hf_adjusted
-                signals.append("hf_confidence_penalty_applied")
-                _log(f"[HuggingFace] confidence penalty: {hf_score:.4f} -> {hf_adjusted:.4f} "
-                     f"(signal_score={signal_score:.4f} excluded)")
+                # If temporal instability confirmed (not just scene cuts), signals get more weight
+                if "hf_temporal_instability" in signals:
+                    video_signal_weight = 0.55
+                    video_model_weight = 0.45
+
+                final_score = video_model_weight * hf_score + video_signal_weight * signal_score
+
+                # Temporal instability bonus: deepfakes flicker between frames
+                # Only applies when hf_temporal_instability is confirmed (std>0.22 AND mean>=0.45)
+                if "hf_temporal_instability" in signals and hf_temporal_score is not None:
+                    temporal_bonus = min(0.15, (hf_temporal_score - 0.22) * 2.0)
+                    final_score = float(np.clip(final_score + temporal_bonus, 0.0, 1.0))
+                    _log(f"[HuggingFace] temporal bonus={temporal_bonus:.4f} (std={hf_temporal_score:.4f})")
+
+                # High-confidence single frame: bumps score up toward rejection
+                if "hf_high_confidence_frame" in signals:
+                    hf_max_score = float(max(
+                        [hf_detector.predict(c) for c in crops[-3:] if c is not None]
+                        or [hf_score]
+                    ))
+                    frame_bump = min(0.10, (hf_max_score - 0.85) * 0.8)
+                    final_score = float(np.clip(final_score + frame_bump, 0.0, 1.0))
+
+                _log(f"[HuggingFace] video fused score={final_score:.4f} "
+                     f"(hf={hf_score:.4f}, signals={signal_score:.4f})")
             else:
-                hf_adjusted = hf_score
-                final_score = 0.70 * hf_adjusted + 0.30 * signal_score
-                _log(f"[HuggingFace] fused score={final_score:.4f} "
-                     f"(hf={hf_adjusted:.4f}, signals={signal_score:.4f})")
+                # ── IMAGE: HF confidence-corroboration adjustment ──────────────────
+                # dima806 is biased toward labeling professional stock photos as fake.
+                # If HF says fake (>= 0.65) but NO genuinely deepfake-specific signals
+                # corroborate it, apply a heavy penalty and ignore signal_score.
+                #
+                # DEEPFAKE_SPECIFIC: signals that are reliable indicators of AI fakery.
+                # These bypass the penalty gate and count as corroboration.
+                DEEPFAKE_SPECIFIC = {
+                    "skin_tone_instability",
+                    "temporal_face_distortion",
+                    "facial_expression_inconsistency",
+                    "gan_ensemble_model_used",   # GAN secondary model fired — strong corroboration
+                }
+                strong_corr = len(set(signals) & DEEPFAKE_SPECIFIC)
+
+                if "gan_ensemble_model_used" in signals:
+                    # GAN-specific model caught this — trust it at 100%, ignore low signal_score.
+                    # StyleGAN faces have very clean signals (no JPEG noise) so signal_score is low.
+                    final_score = hf_score
+                    _log(f"[GAN-Detector] GAN-primary score={final_score:.4f} "
+                         f"(gan_ensemble={hf_score:.4f}, signals={signal_score:.4f} ignored)")
+                elif hf_score >= 0.65 and strong_corr == 0:
+                    # Heavy penalty: dima806 is firing on professional photography.
+                    # -0.52 penalty: hf_score=0.91 -> 0.39 (APPROVED).
+                    hf_adjusted = float(np.clip(hf_score - 0.52, 0.0, 1.0))
+                    final_score = hf_adjusted
+                    signals.append("hf_confidence_penalty_applied")
+                    _log(f"[HuggingFace] confidence penalty: {hf_score:.4f} -> {hf_adjusted:.4f} "
+                         f"(signal_score={signal_score:.4f} excluded)")
+                else:
+                    hf_adjusted = hf_score
+                    final_score = 0.70 * hf_adjusted + 0.30 * signal_score
+                    _log(f"[HuggingFace] fused score={final_score:.4f} "
+                         f"(hf={hf_adjusted:.4f}, signals={signal_score:.4f})")
         else:
             # Pure signal fallback (last resort -- no ML model available)
             final_score = signal_score
@@ -1517,13 +1633,27 @@ def analyze(file_path):
 
     boost = 0.0
     if _model_active:
-        # Only video-deepfake signals that are genuinely compression-immune.
-        # Removed: oversmoothed_skin, oversmoothed_blur (trigger on real selfies,
-        # beauty filters, and portrait mode — not reliable deepfake indicators).
-        if "skin_tone_instability"            in signals: boost += 0.08
-        if "temporal_face_distortion"         in signals: boost += 0.08
-        if "facial_expression_inconsistency"  in signals: boost += 0.08
-        boost = min(boost, 0.06)   # very tight cap when model is authoritative
+        if video:
+            # VIDEO: Only use signals that require TEMPORAL analysis — these are
+            # genuinely deepfake-specific and won't fire on real stock footage.
+            # REMOVED: skin_tone_instability, face_blending_seam, gan_spectral_fingerprint
+            # — all trigger on real footage with varied lighting/color grading.
+            if "temporal_face_distortion"        in signals: boost += 0.12
+            if "facial_expression_inconsistency" in signals: boost += 0.12
+            if "hf_temporal_instability"         in signals: boost += 0.10
+            boost = min(boost, 0.20)  # conservative cap for video
+        else:
+            # IMAGE: Only video-deepfake signals that are genuinely compression-immune.
+            # Removed: oversmoothed_skin, oversmoothed_blur (trigger on real selfies,
+            # beauty filters, and portrait mode — not reliable deepfake indicators).
+            if "skin_tone_instability"            in signals: boost += 0.08
+            if "temporal_face_distortion"         in signals: boost += 0.08
+            if "facial_expression_inconsistency"  in signals: boost += 0.08
+            if "gan_ensemble_model_used"           in signals:
+                boost += 0.20  # GAN model confirmed AI-generated
+                if "gan_spectral_fingerprint" in signals:
+                    boost += 0.10  # spectral fingerprint corroborates GAN model
+            boost = min(boost, 0.28)   # cap raised to 0.28 for images with GAN detection
     else:
         # Signal-only fallback: all signals count
         if "gan_spectral_fingerprint"   in signals: boost += 0.15
@@ -1550,6 +1680,7 @@ def analyze(file_path):
         start_time,
         final_score,
         onnx_score,
+        is_video=video,
     )
     # Attach content-type metadata if classifier ran
     if not video and 'result_meta' in dir():
@@ -1559,7 +1690,7 @@ def analyze(file_path):
 
 def _build_result(model_score, artifact_score, temporal_score,
                   expression_score, metadata_score, compression_score, signals,
-                  start_time, final_score=None, onnx_score=None):
+                  start_time, final_score=None, onnx_score=None, is_video=False):
     if final_score is None:
         final_score = (
             WEIGHT_MODEL       * model_score    +
@@ -1571,11 +1702,23 @@ def _build_result(model_score, artifact_score, temporal_score,
         )
     final_score = float(np.clip(final_score, 0.0, 1.0))
 
-    if final_score >= THRESHOLD_REJECT:
+    # ── Video-specific tighter rejection threshold ─────────────────────────
+    # Videos (reels) uploaded by bad actors are more likely deepfakes.
+    # Use a tighter rejection threshold (0.60) for videos vs images (0.75).
+    # This means deepfake reels scoring 0.60+ are REJECTED instead of UNDER_REVIEW.
+    # Real videos with genuine temporal artifacts rarely exceed 0.55.
+    if is_video:
+        threshold_reject  = 0.62  # tighter for videos (vs 0.75 for images)
+        threshold_approve = THRESHOLD_APPROVE  # same 0.40 for real video approval
+    else:
+        threshold_reject  = THRESHOLD_REJECT   # 0.75 for images
+        threshold_approve = THRESHOLD_APPROVE  # 0.40
+
+    if final_score >= threshold_reject:
         verdict = "REJECTED"
         if "deepfake_detected" not in signals:
             signals.append("synthetic_generation_signal")
-    elif final_score >= THRESHOLD_APPROVE:
+    elif final_score >= threshold_approve:
         verdict = "UNDER_REVIEW"
         if "borderline_needs_review" not in signals:
             signals.append("borderline_needs_review")
@@ -1598,6 +1741,8 @@ def _build_result(model_score, artifact_score, temporal_score,
     }
     if onnx_score is not None:
         result["onnx_model_score"] = round(float(onnx_score), 4)
+    if is_video:
+        result["video_threshold_reject"] = 0.62
 
     return result
 

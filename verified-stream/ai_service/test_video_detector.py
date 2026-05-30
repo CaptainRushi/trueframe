@@ -44,14 +44,14 @@ class TestVideoDetector(unittest.TestCase):
         self.assertEqual(res_low["verdict"], "APPROVED")
         self.assertEqual(res_low["confidence"], "HIGH")
         
-        # 2. Borderline score (e.g. 0.67) -> UNDER_REVIEW
-        res_borderline = reel_inference._build_result(0.67, [], 0)
+        # 2. Borderline score (e.g. 0.50) -> UNDER_REVIEW
+        res_borderline = reel_inference._build_result(0.50, [], 0)
         self.assertEqual(res_borderline["verdict"], "UNDER_REVIEW")
         self.assertEqual(res_borderline["confidence"], "MEDIUM")
         self.assertIn("borderline_needs_review", res_borderline["signals"])
         
-        # 3. High score (e.g. 0.85) -> REJECTED
-        res_high = reel_inference._build_result(0.85, [], 0)
+        # 3. High score (e.g. 0.67) -> REJECTED
+        res_high = reel_inference._build_result(0.67, [], 0)
         self.assertEqual(res_high["verdict"], "REJECTED")
         self.assertEqual(res_high["confidence"], "HIGH")
         self.assertIn("deepfake_detected", res_high["signals"])

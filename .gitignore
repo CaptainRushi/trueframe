@@ -60,3 +60,8 @@ sample_upload.mp4
 # Antigravity/Graphify output
 graphify-out/
 scratch/
+
+# Labeled test media and generated videos (downloaded or synthesized on the fly)
+verified-stream/ai_service/test_media/real/
+verified-stream/ai_service/test_media/deepfake/
+verified-stream/ai_service/test_media/videos/

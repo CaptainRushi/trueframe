@@ -42,6 +42,27 @@ from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
 
 logger = logging.getLogger("trueframe.inference")
 
+_HF_AVAILABLE = False
+try:
+    from ai_core.models import HuggingFaceDeepfakeDetector as _HFDetectorClass
+    _HF_AVAILABLE = True
+except Exception:
+    _HFDetectorClass = None
+    _HF_AVAILABLE = False
+
+_HF_DETECTOR = None
+
+def _get_hf_detector():
+    global _HF_DETECTOR
+    if _HF_DETECTOR is None and _HF_AVAILABLE:
+        try:
+            logger.info("[HuggingFace] Loading dima806/deepfake_vs_real_image_detection model...")
+            _HF_DETECTOR = _HFDetectorClass()
+            logger.info("[HuggingFace] Model ready.")
+        except Exception as e:
+            logger.warning(f"[HuggingFace] Failed to load model: {e}")
+    return _HF_DETECTOR
+
 # ─────────────────── CONFIG ──────────────────────────
 MAX_FRAMES     = 20        # Frames after SSIM deduplication
 FRAME_SIZE     = (224, 224)
@@ -160,6 +181,7 @@ def _build_detector():
         device = "cuda" if torch.cuda.is_available() else "cpu"
         mtcnn = MTCNN(
             image_size=224, margin=20, min_face_size=40,
+            thresholds=[0.5, 0.6, 0.6],
             keep_all=False, post_process=False, device=device,
         )
 
@@ -168,11 +190,30 @@ def _build_detector():
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             pil = Image.fromarray(rgb)
             try:
-                face_t = mtcnn(pil)
-                if face_t is None:
+                boxes, probs = mtcnn.detect(pil)
+                if boxes is None or len(boxes) == 0:
                     return None
-                face_np = face_t.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
-                return cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
+                
+                best_idx = 0
+                box = boxes[best_idx]
+                prob = probs[best_idx]
+                
+                if prob < 0.5:
+                    return None
+                
+                x1, y1, x2, y2 = box
+                fh, fw = frame_bgr.shape[:2]
+                
+                margin = 20
+                x1_m = max(0, int(x1 - margin / 2))
+                y1_m = max(0, int(y1 - margin / 2))
+                x2_m = min(fw, int(x2 + margin / 2))
+                y2_m = min(fh, int(y2 + margin / 2))
+                
+                if x2_m - x1_m < 20 or y2_m - y1_m < 20:
+                    return None
+                    
+                return frame_bgr[y1_m:y2_m, x1_m:x2_m]
             except Exception:
                 return None
 
@@ -246,21 +287,68 @@ def _get_detector():
     return _DETECTOR
 
 
-def _extract_face_crops(frames):
+def _extract_face_crops(frames, min_face_area_ratio=0.008):
     """
     Detect and crop faces from each frame.
     Tries brightened version on failure (handles dark frames).
+    Falls back to Haar cascade if MTCNN misses or detects a tiny FP.
     Returns list of (224, 224, 3) BGR crops.
     """
     detector = _get_detector()
+    
+    # Lazy-load Haar cascade for fallback
+    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    haar_cascade = cv2.CascadeClassifier(cascade_path)
+    
     crops = []
     for frame in frames:
+        img_area = frame.shape[0] * frame.shape[1] if frame is not None else 1
+        
+        # Helper to validate crop size
+        def is_valid_face(f):
+            if f is None or f.size == 0:
+                return False
+            f_area = f.shape[0] * f.shape[1]
+            return (f_area / img_area >= min_face_area_ratio) and (f.shape[0] >= 50) and (f.shape[1] >= 50)
+
+        # 1. Try MTCNN
         face = detector(frame)
+        if not is_valid_face(face):
+            face = None
+            
+        # 2. Try brightened MTCNN
         if face is None:
             bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
             face = detector(bright)
-        if face is not None and face.size > 0:
+            if not is_valid_face(face):
+                face = None
+                
+        # 3. Fallback to permissive Haar Cascade
+        if face is None and not haar_cascade.empty():
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray_eq = cv2.equalizeHist(gray)
+            for nb in [3, 2]:
+                for g_img in [gray_eq, gray]:
+                    faces = haar_cascade.detectMultiScale(g_img, 1.05, nb, minSize=(32, 32))
+                    if len(faces) > 0:
+                        x, y, w, h = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)[0]
+                        pad = int(min(w, h) * 0.15)
+                        fh, fw = frame.shape[:2]
+                        y1 = max(0, y - pad)
+                        x1 = max(0, x - pad)
+                        y2 = min(fh, y + h + pad)
+                        x2 = min(fw, x + w + pad)
+                        candidate = frame[y1:y2, x1:x2]
+                        if is_valid_face(candidate):
+                            face = candidate
+                            break
+                if face is not None:
+                    break
+                    
+        # 4. Save crop if valid
+        if face is not None:
             crops.append(cv2.resize(face, FRAME_SIZE))
+            
     return crops
 
 
@@ -350,8 +438,8 @@ def signal_temporal_flicker(frames):
     diffs = np.abs(np.diff(brightnesses))
     mean_diff = float(np.mean(diffs))
     max_diff  = float(np.max(diffs))
-    score = min(1.0, (mean_diff / 6.0) * 0.4 + (max_diff / 30.0) * 0.6)
-    triggered = mean_diff > 5.0 or max_diff > 20.0
+    score = min(1.0, (mean_diff / 10.0) * 0.4 + (max_diff / 50.0) * 0.6)
+    triggered = mean_diff > 12.0 or max_diff > 45.0
     return score, triggered
 
 
@@ -366,8 +454,6 @@ def signal_block_artifacts(frames):
         if w < 24 or h < 24:
             scores.append(0.0)
             continue
-        # Detect 8x8 JPEG block boundary seams:
-        # Compare pixel differences ACROSS block boundaries vs WITHIN blocks
         boundary_diffs = []
         interior_diffs = []
         for y in range(0, h, 8):
@@ -387,7 +473,8 @@ def signal_block_artifacts(frames):
         return 0.0, False
     mean_ratio = float(np.mean(scores))
     score = min(1.0, max(0.0, mean_ratio * 4.0))
-    triggered = mean_ratio > 0.20
+    # Raise trigger to 0.35 to match main.py and prevent compression false positives
+    triggered = mean_ratio > 0.35
     return score, triggered
 
 
@@ -402,8 +489,8 @@ def signal_color_consistency(frames):
     diffs = np.abs(np.diff(hue_means))
     mean_diff = float(np.mean(diffs))
     max_diff  = float(np.max(diffs))
-    score = min(1.0, (mean_diff / 8.0) * 0.5 + (max_diff / 40.0) * 0.5)
-    triggered = mean_diff > 5.0 or max_diff > 25.0
+    score = min(1.0, (mean_diff / 15.0) * 0.5 + (max_diff / 60.0) * 0.5)
+    triggered = mean_diff > 10.0 or max_diff > 45.0
     return score, triggered
 
 
@@ -418,19 +505,17 @@ def signal_face_texture_variance(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    # FIX: Was 120.0 — compressed/streamed video frames have naturally low variance
-    # after H.264/H.265 encoding. Real videos were triggering this falsely.
-    # Lowered to 60.0 to only catch truly GAN-smooth faces.
-    too_smooth   = mean_var < 60.0
-    too_sharp    = mean_var > 15000.0
-    unstable_var = std_var / (mean_var + 1.0) > 1.8
+    # Real compressed videos have low variance and high std deviation. Adjust triggers.
+    too_smooth   = mean_var < 35.0
+    too_sharp    = mean_var > 18000.0
+    unstable_var = std_var / (mean_var + 1.0) > 2.8
     triggered = too_smooth or too_sharp or unstable_var
     if too_smooth:
-        score = min(1.0, 60.0 / (mean_var + 1.0))
+        score = min(1.0, 35.0 / (mean_var + 1.0))
     elif too_sharp:
-        score = min(1.0, (mean_var - 15000.0) / 10000.0)
+        score = min(1.0, (mean_var - 18000.0) / 10000.0)
     elif unstable_var:
-        score = min(1.0, (std_var / (mean_var + 1.0) - 2.5) / 2.0)
+        score = min(1.0, (std_var / (mean_var + 1.0) - 2.8) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -462,7 +547,7 @@ def signal_blending_edges(crops):
         return 0.0, False
     mean_ratio = float(np.mean(edge_ratios))
     deviation  = abs(mean_ratio - 1.0)
-    triggered  = deviation > 0.30
+    triggered  = deviation > 0.35
     score      = min(1.0, deviation / 1.2)
     return score, triggered
 
@@ -478,9 +563,6 @@ def signal_noise_floor(crops):
         noise_levels.append(float(np.mean(np.abs(gray - blurred))))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    # FIX: Was 0.4 — H.264/H.265 compressed video frames are inherently clean.
-    # Real phone-recorded videos commonly have mean_noise < 0.4 after encoding.
-    # Lowered threshold to 0.15 to only catch truly noiseless GAN faces.
     too_clean    = mean_noise < 0.15
     inconsistent = std_noise / (mean_noise + 1e-6) > 1.5
     triggered = too_clean or inconsistent
@@ -544,7 +626,8 @@ def signal_skin_tone_consistency(crops):
     hue_score = min(1.0, max(0.0, (hue_std - 3.0) / 8.0))
     sat_score = min(1.0, max(0.0, (sat_std - 12.0) / 20.0))
     score = 0.6 * hue_score + 0.4 * sat_score
-    triggered = hue_std > 4.5 or sat_std > 18.0
+    # Raise triggers from 4.5/18.0 to 6.5/22.0
+    triggered = hue_std > 6.5 or sat_std > 22.0
     return float(score), triggered
 
 
@@ -770,9 +853,83 @@ def analyze_video(video_path):
         logger.info(f"[LightFakeDetect] fused={final_score:.4f} "
                     f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
     else:
-        final_score = signal_score
-        signals.append("signal_analysis_fallback")
-        logger.info(f"[SignalAnalysis] fallback score={final_score:.4f}")
+        hf_detector = _get_hf_detector()
+        hf_score = None
+        hf_temporal_score = None
+        
+        if hf_detector is not None and face_crops:
+            try:
+                # Sample up to 10 crops spread evenly across the video sequence
+                n_sample = min(10, len(face_crops))
+                step = max(1, len(face_crops) // n_sample)
+                sample_crops = face_crops[::step][:n_sample]
+                hf_scores = hf_detector.predict_batch(sample_crops)
+                
+                if hf_scores:
+                    hf_score = float(np.mean(hf_scores))
+                    hf_temporal_score = float(np.std(hf_scores))
+                    logger.info(f"[HuggingFace] video P(fake)={hf_score:.4f} "
+                                f"max={float(np.max(hf_scores)):.4f} "
+                                f"(avg over {len(sample_crops)} crops)")
+                    
+                    # Temporal variance check: real videos have consistent predictions,
+                    # deepfakes flicker because the swap isn't temporally stable
+                    if len(hf_scores) >= 4:
+                        if hf_temporal_score > 0.18 and hf_score >= 0.28:
+                            signals.append("hf_temporal_instability")
+                            logger.info(f"[HuggingFace] temporal std={hf_temporal_score:.4f} "
+                                         f"mean={hf_score:.4f} (deepfake instability)")
+                        elif hf_temporal_score > 0.18:
+                            logger.info(f"[HuggingFace] temporal std={hf_temporal_score:.4f} HIGH "
+                                         f"but mean={hf_score:.4f} too low — scene cuts, not deepfake")
+                    
+                    # High-confidence single frame check
+                    hf_max_score = float(np.max(hf_scores))
+                    if hf_max_score > 0.80 and hf_score >= 0.28:
+                        signals.append("hf_high_confidence_frame")
+                        logger.info(f"[HuggingFace] max frame score={hf_max_score:.4f} avg={hf_score:.4f}")
+                        
+                    # Smart boost for localized/lip-sync deepfakes:
+                    # If there is a highly confident fake frame (max > 0.90) and high temporal variation (std > 0.18),
+                    # elevate the base hf_score directly because it's a localized fake.
+                    if hf_max_score > 0.90 and hf_temporal_score is not None and hf_temporal_score > 0.18:
+                        hf_score = max(hf_score, 0.52)
+                        logger.info(f"[HuggingFace] Localized deepfake detected (max={hf_max_score:.4f}, std={hf_temporal_score:.4f}) -> boosted hf_score to {hf_score:.4f}")
+                    
+                    signals.append("huggingface_model_used")
+            except Exception as hf_err:
+                logger.warning(f"[HuggingFace] inference error: {hf_err}")
+                hf_score = None
+                
+        if hf_score is not None:
+            # Video: stricter fusion — signals are very reliable for deepfake reels
+            video_signal_weight = 0.45
+            video_model_weight = 0.55
+            
+            if "hf_temporal_instability" in signals:
+                video_signal_weight = 0.55
+                video_model_weight = 0.45
+                
+            final_score = video_model_weight * hf_score + video_signal_weight * signal_score
+            logger.info(f"[HuggingFace] fused score={final_score:.4f} "
+                        f"(model={hf_score:.4f}, signals={signal_score:.4f})")
+            
+            # Temporal instability bonus
+            if "hf_temporal_instability" in signals and hf_temporal_score is not None:
+                temporal_bonus = min(0.15, (hf_temporal_score - 0.18) * 2.5)
+                final_score = float(np.clip(final_score + temporal_bonus, 0.0, 1.0))
+                logger.info(f"[HuggingFace] temporal bonus={temporal_bonus:.4f} (std={hf_temporal_score:.4f})")
+                
+            # High-confidence single frame bump
+            if "hf_high_confidence_frame" in signals:
+                hf_max_score = float(max(hf_scores or [hf_score]))
+                frame_bump = min(0.10, (hf_max_score - 0.80) * 0.8)
+                final_score = float(np.clip(final_score + frame_bump, 0.0, 1.0))
+                logger.info(f"[HuggingFace] single frame bump={frame_bump:.4f}")
+        else:
+            final_score = signal_score
+            signals.append("signal_analysis_fallback")
+            logger.info(f"[SignalAnalysis] fallback score={final_score:.4f}")
 
     # ── Deepfake Signal Boosting ───────────────────────
     # FIX: Add boost cap — multiple signals on real compressed video compounded
@@ -804,7 +961,9 @@ def _build_result(prob, signals, start_time, raw_scores=None, onnx_score=None):
     prob         = round(float(np.clip(prob, 0, 1)), 4)
     authenticity = round(1.0 - prob, 4)
 
-    if prob >= THRESHOLD_REJECT:
+    video_threshold_reject = 0.62
+
+    if prob >= video_threshold_reject:
         verdict    = "REJECTED"
         confidence = "HIGH"
         if "deepfake_detected" not in signals:
@@ -834,6 +993,7 @@ def _build_result(prob, signals, start_time, raw_scores=None, onnx_score=None):
         "inference_time_ms":    round(elapsed_ms, 1),
         "signals":              list(set(signals)),
         "raw_scores":           {k: round(float(v), 4) for k, v in (raw_scores or {}).items()},
+        "video_threshold_reject": video_threshold_reject,
     }
     if onnx_score is not None:
         result["onnx_model_score"] = round(float(onnx_score), 4)
