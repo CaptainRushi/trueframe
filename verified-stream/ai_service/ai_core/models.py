@@ -225,7 +225,8 @@ class HuggingFaceDeepfakeDetector:
     # Known label maps for specific models where autodetect fails.
     # Key = model name, Value = index of "fake" class in softmax output.
     KNOWN_FAKE_INDICES = {
-        "dima806/deepfake_vs_real_image_detection": 0,  # id2label: {0: "Fake", 1: "Real"}
+        "dima806/deepfake_vs_real_image_detection": 1,   # id2label: {0: "Real", 1: "Fake"}
+        "prithivMLmods/Deep-Fake-Detector-v2-Model": 1,  # id2label: {0: "Realism", 1: "Deepfake"}
     }
 
     def __init__(self, model_name="dima806/deepfake_vs_real_image_detection"):
