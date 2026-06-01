@@ -35,6 +35,13 @@ import numpy as np
 import cv2
 from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
 
+# Enhanced signal detectors v2
+try:
+    from kaggle_eval.signals_v2 import run_all_v2_signals
+    _V2_SIGNALS_AVAILABLE = True
+except ImportError:
+    _V2_SIGNALS_AVAILABLE = False
+
 # HuggingFace model — lazy-imported so missing deps don't crash startup
 try:
     from ai_core.models import HuggingFaceDeepfakeDetector as _HFDetectorClass
@@ -1095,12 +1102,45 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         raw["blur_similarity"] = blur_score
         if blur_trig and not extreme_bright:
             signals.append("oversmoothed_blur_artifact")
+
+        # ── V2 Enhanced Signal Detectors ────────────────────────────
+        # Conservative trigger thresholds to avoid false positives on real images.
+        # NOTE: Only enhanced_seam is used — it reliably detects blending-seam
+        # artifacts (deepfakes with visible face borders) while real images
+        # max out at seam=0.41. Laplacian/wavelet/color/histogram are excluded
+        # because they fire on real lowlight/noisy/professional portraits.
+        # DCT analysis is excluded entirely — it fires identically (~0.80) on
+        # ALL JPEG images (JPEG compression ≠ GAN artifacts).
+        if _V2_SIGNALS_AVAILABLE:
+            v2_raw = run_all_v2_signals(crops, frames)
+            for k, v in v2_raw.items():
+                raw[k] = v
+            if raw.get("enhanced_seam", 0) > 0.45:
+                signals.append("enhanced_blending_seam")
     else:
         signals.append("no_clear_faces_detected")
         for k in ["texture", "edges", "noise", "gan_frequency",
                   "skin_tone", "eye_artifacts", "channel_decoupling", "oversmoothed",
                   "blur_similarity"]:
             raw[k] = 0.0
+
+        # v2 signals can still run on full frames (no face crops needed for some)
+        # Pass frames as crops — DCT and wavelet work on any image, not just face crops
+        if _V2_SIGNALS_AVAILABLE and frames:
+            v2_raw = run_all_v2_signals(frames, frames)
+            raw["dct_artifacts"] = v2_raw.get("dct_artifacts", 0.0)
+            raw["wavelet"] = v2_raw.get("wavelet", 0.0)
+            raw["laplacian_pyramid"] = v2_raw.get("laplacian_pyramid", 0.0)
+            raw["enhanced_seam"] = v2_raw.get("enhanced_seam", 0.0)
+            raw["color_histogram"] = v2_raw.get("color_histogram", 0.0)
+
+            # v2 signals require face crops — no-face path doesn't trigger them
+            # (enhanced_seam, laplacian, wavelet, color histogram all depend on
+            # facial region analysis; running on full frames produces false positives).
+            pass
+        else:
+            for k in ["dct_artifacts", "laplacian_pyramid", "enhanced_seam", "wavelet", "color_histogram"]:
+                raw[k] = 0.0
 
     if video:
         flicker_score, flicker_trig = _signal_temporal_flicker(frames)
@@ -1143,19 +1183,20 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             # Send to UNDER_REVIEW territory (0.35-0.50 base) rather than hard REJECT
             # so legitimate no-face content isn't blocked outright.
             frame_signal_score = (
-                raw.get("frequency", 0.0) * 0.40 +
-                raw.get("compression", 0.0) * 0.35
+                raw.get("frequency", 0.0) * 0.20 +
+                raw.get("compression", 0.0) * 0.15 +
+                0.0  # v2 signals excluded (baseline noise on JPEG real photos)
             )
             if frames and _has_skin_tone_pixels(frames[0]):
                 no_face_base = 0.35
                 signals.append("face_detection_missed_portrait")
             else:
                 no_face_base = 0.45
-            combined = float(np.clip(no_face_base + frame_signal_score * 0.30, 0.0, 1.0))
+            combined = float(np.clip(no_face_base + frame_signal_score * 0.40, 0.0, 1.0))
             return combined, signals, raw
 
     if video:
-        model_score = (
+        v1_raw = (
             raw["frequency"]         * 0.06 +
             raw["texture"]           * 0.10 +
             raw["edges"]             * 0.10 +
@@ -1166,6 +1207,7 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             raw["eye_artifacts"]     * 0.14 +
             raw["channel_decoupling"]* 0.12
         )
+        model_score = v1_raw / 1.00
         artifact_score = raw["compression"]
         temporal_score = raw.get("temporal", 0.0)
 
@@ -1180,7 +1222,7 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
     else:
         # Image Fallback Math Fix (Renormalized weights to sum to 1.0)
         # We don't have temporal/expression/color signals for images.
-        model_score_raw = (
+        v1_raw = (
             raw["frequency"]         * 0.06 +
             raw["texture"]           * 0.10 +
             raw["edges"]             * 0.10 +
@@ -1190,13 +1232,24 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             raw["eye_artifacts"]     * 0.14 +
             raw["channel_decoupling"]* 0.12
         )
-        model_score = model_score_raw / 0.94  # normalize because color is 0.0
+        v1_normalizer = 0.94  # sum of v1 weights (color=0.0 for images)
+
+        # V2 enhanced signals are excluded from model_score computation.
+        # They contribute ONLY through:
+        #   1. Boost when v2 signals fire (in analyze() after fusion)
+        #   2. V2_SIGNAL_STRONG → adaptive signal_weight (up to 0.60)
+        #   3. Signal_score floor (signal_score * 0.85-0.90)
+        # This avoids the ~0.05-0.10 baseline boost that v2 raw values
+        # would add to every image (DCT/Laplacian/Wavelet fire on JPEG real photos too).
+        total_raw = v1_raw
+        total_normalizer = v1_normalizer  # 0.94
+        model_score = total_raw / total_normalizer if total_normalizer > 0 else 0.0
         artifact_score = raw["compression"]
 
         # Use image-specific normalized weights summing to 1.0
         final_score = (
-            0.70 * model_score +
-            0.20 * artifact_score +
+            0.65 * model_score +
+            0.25 * artifact_score +
             0.10 * meta_score
         )
 
@@ -1582,16 +1635,40 @@ def analyze(file_path):
                     "skin_tone_instability",
                     "temporal_face_distortion",
                     "facial_expression_inconsistency",
-                    "gan_ensemble_model_used",   # GAN secondary model fired — strong corroboration
+                    "gan_ensemble_model_used",
+                    "gan_spectral_fingerprint",
+                    "eye_region_gan_artifact",
+                    "enhanced_blending_seam",
                 }
                 strong_corr = len(set(signals) & DEEPFAKE_SPECIFIC)
+
+                # Count v2-specific signals for adaptive weighting
+                V2_SIGNALS = {"enhanced_blending_seam"}
+                v2_fired = len(set(signals) & V2_SIGNALS)
 
                 if "gan_ensemble_model_used" in signals:
                     # GAN-specific model caught this — trust it at 100%, ignore low signal_score.
                     # StyleGAN faces have very clean signals (no JPEG noise) so signal_score is low.
-                    final_score = hf_score
-                    _log(f"[GAN-Detector] GAN-primary score={final_score:.4f} "
-                         f"(gan_ensemble={hf_score:.4f}, signals={signal_score:.4f} ignored)")
+                    # BUT: if dima806 is firing on pro photography (false positive), the signal_score
+                    # will also be low and no genuine deepfake signals will corroborate.
+                    # Check: do we have corroborating deepfake-specific signals?
+                    NON_CIRCULAR = {s for s in DEEPFAKE_SPECIFIC if s != "gan_ensemble_model_used"}
+                    if len(set(signals) & NON_CIRCULAR) >= 1:
+                        # Corroborated by at least one non-circular deepfake signal
+                        final_score = hf_score
+                        _log(f"[GAN-Detector] GAN-corroborated score={final_score:.4f} "
+                             f"(gan_ensemble={hf_score:.4f}, corr={set(signals) & NON_CIRCULAR})")
+                    else:
+                        # No corroboration — may be dima806 false positive on real photography
+                        # Use adaptive fusion to let signal_score weigh in
+                        hf_adjusted = hf_score
+                        fused = 0.70 * hf_adjusted + 0.30 * signal_score
+                        # Apply mild penalty: dima806 has known FP rate on studio/portrait photos
+                        penalty = 0.15  # reduces final score by 0.15
+                        final_score = float(np.clip(fused - penalty, 0.0, 1.0))
+                        _log(f"[GAN-Detector] GAN-uncorroborated score={final_score:.4f} "
+                             f"(hf={hf_adjusted:.4f}, signals={signal_score:.4f}, "
+                             f"penalty={penalty:.2f})")
                 elif hf_score >= 0.65 and strong_corr == 0:
                     # Heavy penalty: dima806 is firing on professional photography.
                     # -0.52 penalty: hf_score=0.91 -> 0.39 (APPROVED).
@@ -1602,9 +1679,39 @@ def analyze(file_path):
                          f"(signal_score={signal_score:.4f} excluded)")
                 else:
                     hf_adjusted = hf_score
-                    final_score = 0.70 * hf_adjusted + 0.30 * signal_score
+                    # Adaptive fusion: v2 signals provide strong evidence even when
+                    # the HF model (trained on face-swap only) returns low scores.
+                    V2_SIGNAL_STRONG = v2_fired >= 2 or (v2_fired >= 1 and signal_score >= 0.25)
+
+                    if V2_SIGNAL_STRONG:
+                        # Multiple v2 signals agree → strong signal-based evidence.
+                        # Even with low HF score, the signal ensemble is reliable.
+                        signal_weight = 0.60
+                        model_weight = 0.40
+                        signals.append("v2_signal_ensemble_boost")
+                    elif v2_fired >= 1:
+                        signal_weight = 0.40
+                        model_weight = 0.60
+                    else:
+                        signal_weight = 0.30
+                        model_weight = 0.70
+
+                    fused = model_weight * hf_adjusted + signal_weight * signal_score
+
+                    # Floor: if 2+ v2 signals fire, don't let a near-zero HF score
+                    # suppress clear signal evidence of deepfake artifacts.
+                    # The ensemble of independent v2 detectors provides reliable detection.
+                    if v2_fired >= 3:
+                        fused = max(fused, signal_score * 0.90)
+                    elif v2_fired >= 2:
+                        fused = max(fused, signal_score * 0.85)
+                    elif v2_fired >= 1 and signal_score >= 0.20:
+                        fused = max(fused, signal_score * 0.70)
+
+                    final_score = float(np.clip(fused, 0.0, 1.0))
                     _log(f"[HuggingFace] fused score={final_score:.4f} "
-                         f"(hf={hf_adjusted:.4f}, signals={signal_score:.4f})")
+                         f"(hf={hf_adjusted:.4f}, signals={signal_score:.4f}, "
+                         f"w_sig={signal_weight:.2f})")
         else:
             # Pure signal fallback (last resort -- no ML model available)
             final_score = signal_score
@@ -1640,28 +1747,43 @@ def analyze(file_path):
             if "temporal_face_distortion"         in signals: boost += 0.08
             if "facial_expression_inconsistency"  in signals: boost += 0.08
             if "gan_ensemble_model_used"           in signals:
-                boost += 0.20  # GAN model confirmed AI-generated
-                if "gan_spectral_fingerprint" in signals:
-                    boost += 0.10  # spectral fingerprint corroborates GAN model
-            boost = min(boost, 0.28)   # cap raised to 0.28 for images with GAN detection
+                # Check if corroborated (NOT circular) — if not, reduce boost
+                NON_CIRCULAR = {"gan_spectral_fingerprint", "eye_region_gan_artifact",
+                                "enhanced_blending_seam", "multiscale_texture_artifact"}
+                if len(set(signals) & NON_CIRCULAR) >= 1:
+                    boost += 0.20
+                    if "gan_spectral_fingerprint" in signals:
+                        boost += 0.10
+                else:
+                    boost += 0.08  # reduced: dima806 FP without signal corroboration
+            # Block artifacts strongly indicate re-encoded deepfake
+            if "reencoding_block_artifacts"       in signals: boost += 0.08
+            # Eye region and channel decoupling are reliable GAN indicators
+            if "eye_region_gan_artifact"          in signals: boost += 0.06
+            # V2 signal boost (only enhanced_blending_seam is active as a trigger)
+            if "enhanced_blending_seam"           in signals: boost += 0.15
+            boost = min(boost, 0.45)
     elif has_faces:
         # Signal-only fallback with faces: all signals count
-        if "gan_spectral_fingerprint"   in signals: boost += 0.15
-        if "face_blending_seam"         in signals: boost += 0.12
-        if "eye_region_gan_artifact"    in signals: boost += 0.12
-        if "unnatural_face_texture"     in signals: boost += 0.08
-        if "color_channel_decoupled"    in signals: boost += 0.08
-        if "oversmoothed_skin_detected" in signals: boost += 0.08
-        if "oversmoothed_blur_artifact" in signals: boost += 0.08
-        if "abnormal_noise_pattern"     in signals: boost += 0.06
-        if "reencoding_block_artifacts" in signals: boost += 0.06
-        boost = min(boost, 0.35)
+        if "gan_spectral_fingerprint"    in signals: boost += 0.15
+        if "face_blending_seam"          in signals: boost += 0.12
+        if "eye_region_gan_artifact"     in signals: boost += 0.12
+        if "unnatural_face_texture"      in signals: boost += 0.08
+        if "color_channel_decoupled"     in signals: boost += 0.08
+        if "oversmoothed_skin_detected"  in signals: boost += 0.08
+        if "oversmoothed_blur_artifact"  in signals: boost += 0.08
+        if "abnormal_noise_pattern"      in signals: boost += 0.06
+        if "reencoding_block_artifacts"  in signals: boost += 0.06
+        # V2 signal boost (only enhanced_blending_seam is active as a trigger)
+        if "enhanced_blending_seam"      in signals: boost += 0.15
+        boost = min(boost, 0.50)
     else:
         # Signal-only fallback, no face detected: only boost on genuinely
         # deepfake-specific signals (not JPEG/noise artifacts from full frame).
         if "gan_spectral_fingerprint"   in signals: boost += 0.10
         if "color_channel_decoupled"    in signals: boost += 0.06
-        boost = min(boost, 0.16)
+        if "wavelet_texture_artifact"  in signals: boost += 0.06
+        boost = min(boost, 0.25)
 
     final_score = float(np.clip(final_score + boost, 0.0, 1.0))
 

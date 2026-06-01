@@ -1,0 +1,401 @@
+{
+  "categories": {
+    "real_portraits": {
+      "count": 20,
+      "mean_score": 0.12808499999999998,
+      "std_score": 0.06871764893388015,
+      "min_score": 0.0212,
+      "max_score": 0.2738,
+      "accuracy": 1.0,
+      "scores": [
+        0.0688,
+        0.0359,
+        0.1255,
+        0.0913,
+        0.1876,
+        0.1801,
+        0.0351,
+        0.096,
+        0.2738,
+        0.2042,
+        0.0706,
+        0.092,
+        0.2304,
+        0.1773,
+        0.0922,
+        0.1739,
+        0.1087,
+        0.0212,
+        0.1006,
+        0.1965
+      ],
+      "verdicts": [
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED"
+      ]
+    },
+    "real_selfies": {
+      "count": 10,
+      "mean_score": 0.37178000000000005,
+      "std_score": 0.24558121996602267,
+      "min_score": 0.0904,
+      "max_score": 1.0,
+      "accuracy": 0.9,
+      "scores": [
+        0.3745,
+        1.0,
+        0.4531,
+        0.0904,
+        0.167,
+        0.337,
+        0.4818,
+        0.1727,
+        0.2145,
+        0.4268
+      ],
+      "verdicts": [
+        "APPROVED",
+        "REJECTED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED"
+      ]
+    },
+    "real_celebrities": {
+      "count": 10,
+      "mean_score": 0.21169000000000002,
+      "std_score": 0.0983575767289943,
+      "min_score": 0.0927,
+      "max_score": 0.3902,
+      "accuracy": 1.0,
+      "scores": [
+        0.3823,
+        0.0927,
+        0.0987,
+        0.1745,
+        0.3902,
+        0.1821,
+        0.1771,
+        0.2659,
+        0.1761,
+        0.1773
+      ],
+      "verdicts": [
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED"
+      ]
+    },
+    "real_group": {
+      "count": 5,
+      "mean_score": 0.20594,
+      "std_score": 0.1899184730351421,
+      "min_score": 0.0684,
+      "max_score": 0.5715,
+      "accuracy": 1.0,
+      "scores": [
+        0.0827,
+        0.0939,
+        0.2132,
+        0.5715,
+        0.0684
+      ],
+      "verdicts": [
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED"
+      ]
+    },
+    "real_lowlight": {
+      "count": 5,
+      "mean_score": 0.22270000000000004,
+      "std_score": 0.19155463972454442,
+      "min_score": 0.0321,
+      "max_score": 0.5119,
+      "accuracy": 1.0,
+      "scores": [
+        0.0987,
+        0.0808,
+        0.5119,
+        0.0321,
+        0.39
+      ],
+      "verdicts": [
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED",
+        "APPROVED"
+      ]
+    },
+    "fake_stylegan": {
+      "count": 10,
+      "mean_score": 1.0,
+      "std_score": 0.0,
+      "min_score": 1.0,
+      "max_score": 1.0,
+      "accuracy": 1.0,
+      "scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "verdicts": [
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED",
+        "REJECTED"
+      ]
+    }
+  },
+  "individual_deepfake": [
+    {
+      "file": "blending_seam_face.png",
+      "score": 0.4698,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "no_clear_faces_detected",
+        "signal_analysis_fallback"
+      ]
+    },
+    {
+      "file": "channel_decoupled.png",
+      "score": 0.2004,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "huggingface_model_used",
+        "enhanced_blending_seam"
+      ]
+    },
+    {
+      "file": "channel_decoupled_face.png",
+      "score": 0.1981,
+      "verdict": "APPROVED",
+      "signals": [
+        "color_channel_decoupled",
+        "face_blending_seam",
+        "huggingface_model_used",
+        "enhanced_blending_seam",
+        "content_type_real_photo"
+      ]
+    },
+    {
+      "file": "color_decoupled_face.png",
+      "score": 0.35,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "no_clear_faces_detected",
+        "signal_analysis_fallback",
+        "face_detection_missed_portrait"
+      ]
+    },
+    {
+      "file": "crop_channel_decoupled.png",
+      "score": 0.1344,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "huggingface_model_used"
+      ]
+    },
+    {
+      "file": "crop_heavy_jpeg.png",
+      "score": 0.5969,
+      "verdict": "APPROVED",
+      "signals": [
+        "reencoding_block_artifacts",
+        "huggingface_model_used",
+        "enhanced_blending_seam",
+        "v2_signal_ensemble_boost",
+        "content_type_real_photo"
+      ]
+    },
+    {
+      "file": "crop_high_noise.png",
+      "score": 0.2588,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "huggingface_model_used"
+      ]
+    },
+    {
+      "file": "crop_oversmoothed.png",
+      "score": 0.4452,
+      "verdict": "APPROVED",
+      "signals": [
+        "color_channel_decoupled",
+        "unnatural_face_texture",
+        "abnormal_noise_pattern",
+        "face_blending_seam",
+        "huggingface_model_used"
+      ]
+    },
+    {
+      "file": "crop_seam.png",
+      "score": 0.1523,
+      "verdict": "APPROVED",
+      "signals": [
+        "color_channel_decoupled",
+        "unnatural_face_texture",
+        "abnormal_noise_pattern",
+        "huggingface_model_used",
+        "gan_spectral_fingerprint"
+      ]
+    },
+    {
+      "file": "gan_clean_face.png",
+      "score": 1.0,
+      "verdict": "REJECTED",
+      "signals": [
+        "limited_color_palette",
+        "uniform_edge_sharpness",
+        "synthetic_generation_signal",
+        "cartoon_illustration_blocked"
+      ]
+    },
+    {
+      "file": "heavy_jpeg_artifacts.png",
+      "score": 0.4482,
+      "verdict": "APPROVED",
+      "signals": [
+        "reencoding_block_artifacts",
+        "color_channel_decoupled",
+        "face_blending_seam",
+        "huggingface_model_used",
+        "enhanced_blending_seam"
+      ]
+    },
+    {
+      "file": "heavy_jpeg_face.png",
+      "score": 0.2237,
+      "verdict": "APPROVED",
+      "signals": [
+        "color_channel_decoupled",
+        "face_blending_seam",
+        "huggingface_model_used",
+        "enhanced_blending_seam",
+        "content_type_real_photo"
+      ]
+    },
+    {
+      "file": "high_noise_face.png",
+      "score": 0.2054,
+      "verdict": "APPROVED",
+      "signals": [
+        "color_channel_decoupled",
+        "face_blending_seam",
+        "huggingface_model_used",
+        "enhanced_blending_seam",
+        "gan_spectral_fingerprint"
+      ]
+    },
+    {
+      "file": "oversharpened_face.png",
+      "score": 0.199,
+      "verdict": "APPROVED",
+      "signals": [
+        "high_frequency_artifacts",
+        "color_channel_decoupled",
+        "huggingface_model_used",
+        "eye_region_gan_artifact",
+        "oversmoothed_skin_detected"
+      ]
+    },
+    {
+      "file": "oversmoothed_face.png",
+      "score": 0.1072,
+      "verdict": "APPROVED",
+      "signals": [
+        "oversmoothed_blur_artifact",
+        "content_type_real_photo",
+        "face_blending_seam",
+        "huggingface_model_used"
+      ]
+    },
+    {
+      "file": "seam_face.png",
+      "score": 0.227,
+      "verdict": "APPROVED",
+      "signals": [
+        "color_channel_decoupled",
+        "face_blending_seam",
+        "huggingface_model_used",
+        "enhanced_blending_seam",
+        "content_type_real_photo"
+      ]
+    },
+    {
+      "file": "unnatural_skin.png",
+      "score": 0.3746,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "no_clear_faces_detected",
+        "signal_analysis_fallback",
+        "face_detection_missed_portrait"
+      ]
+    },
+    {
+      "file": "visible_seam_face.png",
+      "score": 0.1832,
+      "verdict": "APPROVED",
+      "signals": [
+        "content_type_real_photo",
+        "color_channel_decoupled",
+        "huggingface_model_used",
+        "enhanced_blending_seam"
+      ]
+    }
+  ],
+  "real_mean": 0.210792,
+  "fake_mean": 1.0
+}
