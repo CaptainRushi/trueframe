@@ -53,7 +53,7 @@ from main import (
 from training.reel_inference import analyze_video
 
 THRESHOLD_APPROVE = 0.60
-THRESHOLD_REJECT = 0.80
+THRESHOLD_REJECT = 0.75
 
 
 # ═══════════════════════════════════════════════════════════

@@ -59,10 +59,15 @@ export async function updateProfileTrustScore(userId: string) {
     // FINAL TRUST SCORE (0-100)
     const trustScore = Math.min(100, verificationScore + ageScore + volumeScore + communityScore);
 
+    // Status is determined by fake percentage (error rate), not absolute trust score.
+    // This matches the DB trigger (update_profile_trust_stats) and sync_profiles logic.
+    // - fakePercentage > 30% → UNDER_REVIEW (< 70% real)
+    // - fakePercentage > 10% → AT_RISK (< 90% real)
+    // - Otherwise → TRUSTED
     let status = 'TRUSTED';
     if (totalUploads === 0) status = 'NEW_USER';
-    else if (trustScore < 25) status = 'UNDER_REVIEW';
-    else if (trustScore < 50) status = 'AT_RISK';
+    else if (fakePercentage > 30) status = 'UNDER_REVIEW';
+    else if (fakePercentage > 10) status = 'AT_RISK';
 
     await supabase.from('profiles').update({
       trust_status: status,
