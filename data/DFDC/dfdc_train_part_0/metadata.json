@@ -1,0 +1,10 @@
+{
+    "sample_real_dfdc.mp4": {
+        "label": "REAL",
+        "split": "train"
+    },
+    "sample_fake_dfdc.mp4": {
+        "label": "FAKE",
+        "split": "train"
+    }
+}

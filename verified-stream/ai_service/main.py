@@ -97,27 +97,45 @@ def _sample_video_frames(path, n=MAX_FRAMES):
 def _get_onnx_session():
     """
     Load the LightFakeDetect ONNX model if available.
-    Returns (session, model_dir) or (None, None).
+    Returns (session, model_dir, is_sequence_model) or (None, None, False).
+    is_sequence_model: True if it's a LightFakeDetect (expects (B, T, 3, 224, 224))
+                       False if it's a single-image model (expects (B, 3, 224, 224))
     """
     try:
         import onnxruntime as ort
         model_dir = os.path.join(os.path.dirname(__file__), "models")
-        candidates = [
+        # Priority 1: LightFakeDetect sequence model (B, T, 3, 224, 224)
+        sequence_candidates = [
             os.path.join(model_dir, "lightfakedetect.onnx"),
             os.path.join(model_dir, "trueframe_reels_detector.onnx"),
         ]
-        onnx_path = next((path for path in candidates if os.path.exists(path)), None)
-        if onnx_path is None:
-            return None, None
-        sess = ort.InferenceSession(
-            onnx_path,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-        )
-        _log(f"[LightFakeDetect] ONNX model loaded from {onnx_path}")
-        return sess, model_dir
+        onnx_path = next((path for path in sequence_candidates if os.path.exists(path)), None)
+        if onnx_path is not None:
+            sess = ort.InferenceSession(
+                onnx_path,
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            )
+            _log(f"[ONNX] Sequence model loaded from {onnx_path}")
+            return sess, model_dir, True
+
+        # Priority 2: HuggingFace single-image ONNX model (B, 3, 224, 224)
+        single_candidates = [
+            os.path.join(model_dir, "hf_deepfake_detector.onnx"),
+            os.path.join(model_dir, "deep_fake_detector_v2_model.onnx"),
+        ]
+        onnx_path = next((path for path in single_candidates if os.path.exists(path)), None)
+        if onnx_path is not None:
+            sess = ort.InferenceSession(
+                onnx_path,
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            )
+            _log(f"[ONNX] Single-image model loaded from {onnx_path}")
+            return sess, model_dir, False
+
+        return None, None, False
     except Exception as e:
-        _log(f"[LightFakeDetect] ONNX load failed: {e}")
-        return None, None
+        _log(f"[ONNX] Load failed: {e}")
+        return None, None, False
 
 
 def _normalize_crop(face_bgr):
@@ -367,6 +385,98 @@ def _run_onnx_inference(sess, frames):
         return float(np.clip(prob, 0.0, 1.0))
     except Exception as e:
         _log(f"[LightFakeDetect] ONNX inference error: {e}")
+        return None
+
+
+# ─────────────────── SINGLE-IMAGE ONNX INFERENCE ──────
+
+# Cache HF processor for correct normalization
+_HF_PROCESSOR_CACHE = {}
+
+def _get_hf_processor(model_name="dima806/deepfake_vs_real_image_detection"):
+    """Lazy-load and cache the HuggingFace processor for correct normalization."""
+    global _HF_PROCESSOR_CACHE
+    if model_name in _HF_PROCESSOR_CACHE:
+        return _HF_PROCESSOR_CACHE[model_name]
+    try:
+        from transformers import AutoImageProcessor
+        processor = AutoImageProcessor.from_pretrained(model_name)
+        _HF_PROCESSOR_CACHE[model_name] = processor
+        return processor
+    except Exception:
+        return None
+
+
+def _preprocess_for_onnx(frame_bgr, processor=None):
+    """Preprocess a BGR frame for ONNX inference using HF processor (PIL resize)."""
+    from PIL import Image
+    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(rgb)
+    if processor is not None:
+        inputs = processor(images=pil_img, return_tensors="np")
+        return inputs["pixel_values"].astype(np.float32)
+    pil_resized = pil_img.resize(FRAME_SIZE, Image.Resampling.BILINEAR)
+    arr = np.array(pil_resized, dtype=np.float32) / 255.0
+    norm_mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    norm_std = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    normalized = (arr - norm_mean) / norm_std
+    return normalized.transpose(2, 0, 1)[np.newaxis].astype(np.float32)
+
+
+def _run_onnx_single_inference(sess, frames):
+    """
+    Run a single-image ONNX model (e.g. exported HuggingFace ViT) on each frame.
+
+    Uses the correct HuggingFace processor (PIL resize) for exact match.
+    Detects faces, crops, preprocesses, runs ONNX inference,
+    and returns the mean P(fake) across all frames.
+
+    Returns float P(fake) in [0, 1], or None if inference fails.
+    """
+    try:
+        crops = _get_face_crops(frames)
+        if not crops:
+            for frame in frames:
+                if frame is not None:
+                    crops.append(frame)
+
+        if not crops:
+            return None
+
+        processor = _get_hf_processor()
+
+        scores = []
+        for crop in crops:
+            tensor = _preprocess_for_onnx(crop, processor)
+            input_name = sess.get_inputs()[0].name
+            output = sess.run(None, {input_name: tensor})
+            prob = float(output[0].flatten()[0])
+            scores.append(float(np.clip(prob, 0.0, 1.0)))
+
+        if not scores:
+            return None
+        return float(np.mean(scores))
+    except Exception as e:
+        _log(f"[ONNX] Single-image inference error: {e}")
+        return None
+
+
+def _run_onnx_full_inference(sess, frame):
+    """Run ONNX single-image model on the full frame using HF processor.
+
+    Uses the HuggingFace processor (PIL resize + correct normalization)
+    for exact match with the PyTorch model behavior.
+    """
+    try:
+        if frame is None:
+            return None
+        processor = _get_hf_processor()
+        tensor = _preprocess_for_onnx(frame, processor)
+        input_name = sess.get_inputs()[0].name
+        output = sess.run(None, {input_name: tensor})
+        return float(np.clip(output[0].flatten()[0], 0.0, 1.0))
+    except Exception as e:
+        _log(f"[ONNX] Full-frame inference error: {e}")
         return None
 
 
@@ -1451,15 +1561,51 @@ def analyze(file_path):
     # Only bother computing if a face was confirmed by MTCNN.
     crops = _get_face_crops(frames) if has_faces else mtcnn_crops
 
-    # ── Priority 1: LightFakeDetect ONNX model ─────────
-    onnx_sess, _ = _get_onnx_session()
+    # ── Priority 1: ONNX model inference ───────────────
+    onnx_sess, _, onnx_is_seq = _get_onnx_session()
     onnx_score   = None
+    gan_onnx_score = None
+    onnx_full_score = None
 
     if onnx_sess is not None:
-        onnx_score = _run_onnx_inference(onnx_sess, frames)
-        if onnx_score is not None:
-            _log(f"[LightFakeDetect] model P(fake)={onnx_score:.4f}")
-            signals.append("lightfakedetect_model_used")
+        if onnx_is_seq:
+            onnx_score = _run_onnx_inference(onnx_sess, frames)
+            if onnx_score is not None:
+                _log(f"[LightFakeDetect] sequence model P(fake)={onnx_score:.4f}")
+                signals.append("lightfakedetect_model_used")
+        else:
+            # Use single-image ONNX model (dima806 ViT export)
+            # Full-frame score is the primary signal — it discriminates well
+            # between real (0.001) and deepfake (0.90+). Face-crop score is
+            # biased (0.99 for ALL crops) so we only use it for corroboration.
+            onnx_crop_score = _run_onnx_single_inference(onnx_sess, frames)
+            onnx_full_score = _run_onnx_full_inference(onnx_sess, frames[0] if frames else None)
+
+            if onnx_crop_score is not None or onnx_full_score is not None:
+                hf_full_score = onnx_full_score if onnx_full_score is not None else (onnx_crop_score or 0.0)
+                onnx_score = hf_full_score
+                signals.append("onnx_model_used")
+
+                if hf_full_score >= 0.04 and (onnx_crop_score or 0.0) >= 0.75:
+                    signals.append("onnx_full_crop_corroboration")
+                    _log(f"[ONNX] dima806 full={hf_full_score:.4f}, "
+                         f"crop={onnx_crop_score:.4f} (corroborated)")
+
+                # Also try GAN-specific ONNX model
+                try:
+                    import onnxruntime as ort
+                    model_dir = os.path.join(os.path.dirname(__file__), "models")
+                    gan_path = os.path.join(model_dir, "deep_fake_detector_v2_model.onnx")
+                    if os.path.exists(gan_path):
+                        gan_sess = ort.InferenceSession(gan_path, providers=["CPUExecutionProvider"])
+                        gan_val = _run_onnx_single_inference(gan_sess, frames)
+                        if gan_val is not None:
+                            gan_onnx_score = gan_val
+                            _log(f"[ONNX] GAN model P(fake)={gan_onnx_score:.4f}")
+                            if gan_onnx_score >= 0.75:
+                                signals.append("gan_ensemble_model_used")
+                except Exception as e:
+                    _log(f"[ONNX] GAN model error: {e}")
 
     # ── Priority 2: Signal analysis (always run) ───────
     signal_score, signal_signals, raw = _run_signal_analysis(
@@ -1469,15 +1615,44 @@ def analyze(file_path):
 
     # ── Score fusion ────────────────────────────────────
     if onnx_score is not None:
-        # Both available: model-weighted fusion (boost signals when expressions look off)
-        signal_weight = 0.30
-        model_weight = 0.70
-        if video and raw.get("expression", 0.0) >= 0.55:
-            signal_weight = 0.45
-            model_weight = 0.55
-        final_score = model_weight * onnx_score + signal_weight * signal_score
-        _log(f"[LightFakeDetect] fused score={final_score:.4f} "
-             f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
+        if onnx_is_seq:
+            # LightFakeDetect sequence model: model-weighted fusion
+            signal_weight = 0.30
+            model_weight = 0.70
+            if video and raw.get("expression", 0.0) >= 0.55:
+                signal_weight = 0.45
+                model_weight = 0.55
+            final_score = model_weight * onnx_score + signal_weight * signal_score
+            _log(f"[LightFakeDetect] fused score={final_score:.4f} "
+                 f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
+        else:
+            # Single-image ONNX models: conservative fusion.
+            # The dima806 full-frame score gives ~0.001 for real and ~0.90 for
+            # deepfake, but can false-positive on close-up JPEG-compressed selfies.
+            # Use 50/50 fusion with signal analysis as a conservative balance.
+            hf_score = onnx_score
+            hf_temporal_score = None
+
+            if video:
+                video_signal_weight = 0.45
+                video_model_weight = 0.55
+                if "hf_temporal_instability" in signals:
+                    video_signal_weight = 0.55
+                    video_model_weight = 0.45
+                final_score = video_model_weight * hf_score + video_signal_weight * signal_score
+                _log(f"[ONNX] video fused score={final_score:.4f} "
+                     f"(hf={hf_score:.4f}, signals={signal_score:.4f})")
+            else:
+                model_weight = 0.50
+                if "onnx_full_crop_corroboration" in signals:
+                    model_weight = 0.60
+                if "gan_ensemble_model_used" in signals:
+                    model_weight = 0.85
+                if hf_score >= 0.65 and model_weight <= 0.60 and "onnx_full_crop_corroboration" not in signals:
+                    model_weight = 0.35
+                final_score = model_weight * hf_score + (1 - model_weight) * signal_score
+                _log(f"[ONNX] image fused score={final_score:.4f} "
+                     f"(weight={model_weight:.2f}, hf={hf_score:.4f}, signals={signal_score:.4f})")
     else:
         # ── Priority 2: HuggingFace pre-trained model ──────
         hf_detector = _get_hf_detector()
@@ -1629,7 +1804,8 @@ def analyze(file_path):
     # When pure signal fallback: use all signals.
     _hf_active   = "huggingface_model_used"     in signals
     _onnx_active = "lightfakedetect_model_used" in signals
-    _model_active = _hf_active or _onnx_active
+    _onnx_single_active = "onnx_model_used" in signals
+    _model_active = _hf_active or _onnx_active or _onnx_single_active
 
     boost = 0.0
     if _model_active:

@@ -1,0 +1,79 @@
+[
+  {
+    "file": "176527-855920754_medium.mp4",
+    "label": "real",
+    "category": "real_video_stock",
+    "difficulty": "medium",
+    "score": 0.3684,
+    "verdict": "APPROVED",
+    "signals": [
+      "skin_tone_instability",
+      "huggingface_model_used",
+      "face_blending_seam",
+      "unnatural_face_texture",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled"
+    ],
+    "correct": true,
+    "backend": "HF",
+    "note": "Stock footage reel \u2014 should be APPROVED"
+  },
+  {
+    "file": "test_assets/extreme/stylegan/extreme_f01.jpg",
+    "label": "fake",
+    "category": "stylegan3_face",
+    "difficulty": "hard",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "huggingface_model_used",
+      "synthetic_generation_signal",
+      "gan_ensemble_model_used",
+      "content_type_real_photo",
+      "color_channel_decoupled",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "backend": "HF",
+    "note": "High-quality StyleGAN3 face \u2014 no real person exists"
+  },
+  {
+    "file": "test_assets/extreme/stylegan/extreme_f02.jpg",
+    "label": "fake",
+    "category": "stylegan3_face",
+    "difficulty": "hard",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "content_type_real_photo",
+      "color_channel_decoupled",
+      "gan_ensemble_model_used",
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "synthetic_generation_signal"
+    ],
+    "correct": true,
+    "backend": "HF",
+    "note": "StyleGAN3 high-res (1024x1024)"
+  },
+  {
+    "file": "test_assets/extreme/stylegan/extreme_f03.jpg",
+    "label": "fake",
+    "category": "stylegan3_face",
+    "difficulty": "extreme",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "synthetic_generation_signal",
+      "content_type_real_photo",
+      "gan_ensemble_model_used",
+      "color_channel_decoupled"
+    ],
+    "correct": true,
+    "backend": "HF",
+    "note": "StyleGAN3 with glasses \u2014 harder to detect"
+  }
+]

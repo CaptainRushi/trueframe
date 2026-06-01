@@ -1,0 +1,98 @@
+[
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r41_landscape.jpg",
+    "label": "fake",
+    "score": 0.8145,
+    "verdict": "REJECTED",
+    "correct": true,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r42_landscape.jpg",
+    "label": "fake",
+    "score": 0.7945,
+    "verdict": "REJECTED",
+    "correct": true,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r43_landscape.jpg",
+    "label": "fake",
+    "score": 0.93,
+    "verdict": "REJECTED",
+    "correct": true,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r44_landscape.jpg",
+    "label": "fake",
+    "score": 0.5136,
+    "verdict": "UNDER_REVIEW",
+    "correct": false,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r45_landscape.jpg",
+    "label": "fake",
+    "score": 0.7684,
+    "verdict": "REJECTED",
+    "correct": true,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r24_group.jpg",
+    "label": "real",
+    "score": 0.4173,
+    "verdict": "UNDER_REVIEW",
+    "correct": false,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r33_selfie.jpg",
+    "label": "real",
+    "score": 0.5413,
+    "verdict": "UNDER_REVIEW",
+    "correct": false,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r40_selfie.jpg",
+    "label": "real",
+    "score": 0.8968,
+    "verdict": "REJECTED",
+    "correct": false,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r58_celeb.jpg",
+    "label": "real",
+    "score": 0.6099,
+    "verdict": "UNDER_REVIEW",
+    "correct": false,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r23_group.jpg",
+    "label": "real",
+    "score": 0.3976,
+    "verdict": "APPROVED",
+    "correct": true,
+    "is_video": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r34_selfie.jpg",
+    "label": "real",
+    "score": 0.3669,
+    "verdict": "APPROVED",
+    "correct": true,
+    "is_video": false
+  },
+  {
+    "file": "176527-855920754_medium.mp4",
+    "label": "real",
+    "score": 0.3796,
+    "verdict": "APPROVED",
+    "correct": true,
+    "is_video": true
+  }
+]

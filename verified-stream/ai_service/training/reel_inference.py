@@ -857,20 +857,29 @@ def analyze_video(video_path):
         hf_score = None
         hf_temporal_score = None
         
-        if hf_detector is not None and face_crops:
+        if hf_detector is not None:
             try:
-                # Sample up to 10 crops spread evenly across the video sequence
-                n_sample = min(10, len(face_crops))
-                step = max(1, len(face_crops) // n_sample)
-                sample_crops = face_crops[::step][:n_sample]
-                hf_scores = hf_detector.predict_batch(sample_crops)
+                # Sample crops or fall back to full frames if no face could be cropped
+                if face_crops:
+                    n_sample = min(10, len(face_crops))
+                    step = max(1, len(face_crops) // n_sample)
+                    sample_inputs = face_crops[::step][:n_sample]
+                    fallback_mode = False
+                else:
+                    n_sample = min(10, len(unique_frames))
+                    step = max(1, len(unique_frames) // n_sample)
+                    sample_inputs = unique_frames[::step][:n_sample]
+                    fallback_mode = True
+                    
+                hf_scores = hf_detector.predict_batch(sample_inputs)
                 
                 if hf_scores:
                     hf_score = float(np.mean(hf_scores))
                     hf_temporal_score = float(np.std(hf_scores))
+                    input_type = "full frames" if fallback_mode else f"{len(sample_inputs)} crops"
                     logger.info(f"[HuggingFace] video P(fake)={hf_score:.4f} "
                                 f"max={float(np.max(hf_scores)):.4f} "
-                                f"(avg over {len(sample_crops)} crops)")
+                                f"(avg over {input_type})")
                     
                     # Temporal variance check: real videos have consistent predictions,
                     # deepfakes flicker because the swap isn't temporally stable
@@ -897,6 +906,8 @@ def analyze_video(video_path):
                         logger.info(f"[HuggingFace] Localized deepfake detected (max={hf_max_score:.4f}, std={hf_temporal_score:.4f}) -> boosted hf_score to {hf_score:.4f}")
                     
                     signals.append("huggingface_model_used")
+                    if fallback_mode:
+                        signals.append("hf_full_frame_fallback_used")
             except Exception as hf_err:
                 logger.warning(f"[HuggingFace] inference error: {hf_err}")
                 hf_score = None

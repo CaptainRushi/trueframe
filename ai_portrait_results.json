@@ -1,0 +1,20 @@
+[
+  {
+    "file": "test_assets\\ai_portraits\\genphoto_01.jpg",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "correct": true
+  },
+  {
+    "file": "test_assets\\ai_portraits\\genphoto_02.jpg",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "correct": true
+  },
+  {
+    "file": "test_assets\\ai_portraits\\genphoto_03.jpg",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "correct": true
+  }
+]

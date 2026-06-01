@@ -1,0 +1,1523 @@
+[
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r01_portrait.jpg",
+    "label": "real",
+    "score": 0.063,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r02_portrait.jpg",
+    "label": "real",
+    "score": 0.038,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r03_portrait.jpg",
+    "label": "real",
+    "score": 0.1143,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r04_portrait.jpg",
+    "label": "real",
+    "score": 0.0775,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r05_portrait.jpg",
+    "label": "real",
+    "score": 0.0948,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r06_portrait.jpg",
+    "label": "real",
+    "score": 0.0869,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r07_portrait.jpg",
+    "label": "real",
+    "score": 0.0335,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r08_portrait.jpg",
+    "label": "real",
+    "score": 0.0825,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r09_portrait.jpg",
+    "label": "real",
+    "score": 0.1232,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "eye_region_gan_artifact",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r10_portrait.jpg",
+    "label": "real",
+    "score": 0.0428,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r11_pexels.jpg",
+    "label": "real",
+    "score": 0.0644,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r12_pexels.jpg",
+    "label": "real",
+    "score": 0.0783,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r13_pexels.jpg",
+    "label": "real",
+    "score": 0.0605,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r14_pexels.jpg",
+    "label": "real",
+    "score": 0.0839,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "face_blending_seam",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r15_pexels.jpg",
+    "label": "real",
+    "score": 0.0785,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r16_pexels.jpg",
+    "label": "real",
+    "score": 0.0798,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "face_blending_seam",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r17_pexels.jpg",
+    "label": "real",
+    "score": 0.0962,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r18_pexels.jpg",
+    "label": "real",
+    "score": 0.0209,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r19_pexels.jpg",
+    "label": "real",
+    "score": 0.0875,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/portraits/r20_pexels.jpg",
+    "label": "real",
+    "score": 0.1044,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r21_group.jpg",
+    "label": "real",
+    "score": 0.0793,
+    "verdict": "APPROVED",
+    "signals": [
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r22_group.jpg",
+    "label": "real",
+    "score": 0.0866,
+    "verdict": "APPROVED",
+    "signals": [
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r23_group.jpg",
+    "label": "real",
+    "score": 0.1224,
+    "verdict": "APPROVED",
+    "signals": [
+      "abnormal_noise_pattern",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r24_group.jpg",
+    "label": "review",
+    "score": 0.1564,
+    "verdict": "APPROVED",
+    "signals": [
+      "face_blending_seam",
+      "huggingface_model_used",
+      "eye_region_gan_artifact",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/group/r25_group.jpg",
+    "label": "real",
+    "score": 0.0646,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "unnatural_face_texture"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/lowlight/r26_lowlight.jpg",
+    "label": "real",
+    "score": 0.0852,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/lowlight/r27_lowlight.jpg",
+    "label": "real",
+    "score": 0.07,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/lowlight/r28_lowlight.jpg",
+    "label": "real",
+    "score": 0.4319,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "face_blending_seam",
+      "hf_confidence_penalty_applied",
+      "huggingface_model_used",
+      "borderline_needs_review",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/lowlight/r29_flash.jpg",
+    "label": "real",
+    "score": 0.0344,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/lowlight/r30_flash.jpg",
+    "label": "real",
+    "score": 0.0922,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r31_selfie.jpg",
+    "label": "real",
+    "score": 0.0887,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r32_selfie.jpg",
+    "label": "real",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r33_selfie.jpg",
+    "label": "review",
+    "score": 0.1803,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r34_selfie.jpg",
+    "label": "real",
+    "score": 0.0855,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r35_selfie.jpg",
+    "label": "real",
+    "score": 0.0944,
+    "verdict": "APPROVED",
+    "signals": [
+      "face_blending_seam",
+      "huggingface_model_used",
+      "eye_region_gan_artifact",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r36_selfie.jpg",
+    "label": "real",
+    "score": 0.0716,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r37_selfie.jpg",
+    "label": "real",
+    "score": 0.0968,
+    "verdict": "APPROVED",
+    "signals": [
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r38_selfie.jpg",
+    "label": "real",
+    "score": 0.0789,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r39_selfie.jpg",
+    "label": "real",
+    "score": 0.1239,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "face_blending_seam",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/selfies/r40_selfie.jpg",
+    "label": "unknown",
+    "score": 0.8968,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "face_detection_missed_portrait",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "signal_analysis_fallback",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r41_landscape.jpg",
+    "label": "fake",
+    "score": 0.8145,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "face_detection_missed_portrait",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r42_landscape.jpg",
+    "label": "fake",
+    "score": 0.7945,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "face_detection_missed_portrait",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r43_landscape.jpg",
+    "label": "fake",
+    "score": 0.93,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r44_landscape.jpg",
+    "label": "fake",
+    "score": 0.195,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "eye_region_gan_artifact",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r45_landscape.jpg",
+    "label": "fake",
+    "score": 0.7684,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "face_detection_missed_portrait",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r46_doc.jpg",
+    "label": "unknown",
+    "score": 0.8093,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "face_detection_missed_portrait",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r47_doc.jpg",
+    "label": "unknown",
+    "score": 0.2288,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r48_doc.jpg",
+    "label": "unknown",
+    "score": 0.3099,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r49_doc.jpg",
+    "label": "unknown",
+    "score": 0.93,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback",
+      "reencoding_block_artifacts"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/no_face/r50_doc.jpg",
+    "label": "unknown",
+    "score": 0.1402,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "content_type_real_photo",
+      "reencoding_block_artifacts",
+      "unnatural_face_texture"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r51_celeb.jpg",
+    "label": "real",
+    "score": 0.104,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r52_celeb.jpg",
+    "label": "real",
+    "score": 0.0789,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r53_celeb.jpg",
+    "label": "real",
+    "score": 0.0855,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r54_celeb.jpg",
+    "label": "real",
+    "score": 0.165,
+    "verdict": "APPROVED",
+    "signals": [
+      "abnormal_noise_pattern",
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "oversmoothed_blur_artifact",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r55_celeb.jpg",
+    "label": "real",
+    "score": 0.0907,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "face_blending_seam"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r56_celeb.jpg",
+    "label": "real",
+    "score": 0.0884,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r57_celeb.jpg",
+    "label": "real",
+    "score": 0.0834,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r58_celeb.jpg",
+    "label": "unknown",
+    "score": 0.1782,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "face_blending_seam",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r59_celeb.jpg",
+    "label": "real",
+    "score": 0.0827,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/real/celebrities/r60_celeb.jpg",
+    "label": "real",
+    "score": 0.1054,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "eye_region_gan_artifact",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f01_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f02_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f03_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f04_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f05_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f06_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f07_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f08_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f09_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stylegan/f10_gan.jpg",
+    "label": "fake",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/faceswap/f11_swap.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/faceswap/f12_swap.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/faceswap/f13_swap.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/faceswap/f14_swap.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/faceswap/f15_swap.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/midjourney/f16_mj.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/midjourney/f17_mj.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/midjourney/f18_mj.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/midjourney/f19_mj.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/midjourney/f20_mj.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stable_diffusion/f21_sd.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stable_diffusion/f22_sd.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stable_diffusion/f23_sd.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stable_diffusion/f24_sd.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/stable_diffusion/f25_sd.jpg",
+    "label": "fake",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/borderline/f26_borderline.jpg",
+    "label": "review",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/borderline/f27_borderline.jpg",
+    "label": "review",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/borderline/f28_borderline.jpg",
+    "label": "review",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/borderline/f29_borderline.jpg",
+    "label": "review",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/deepfake/borderline/f30_borderline.jpg",
+    "label": "review",
+    "missing": true
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v01_real_speech.mp4",
+    "label": "real",
+    "score": 0.5997,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v02_real_speech.mp4",
+    "label": "real",
+    "score": 0.5997,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v03_real_speech.mp4",
+    "label": "real",
+    "score": 0.5997,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v04_real_group.mp4",
+    "label": "real",
+    "score": 0.5997,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v05_real_group.mp4",
+    "label": "real",
+    "score": 0.5997,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v06_compressed.mp4",
+    "label": "real",
+    "score": 0.4746,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/real/v07_compressed.mp4",
+    "label": "real",
+    "score": 0.4746,
+    "verdict": "UNDER_REVIEW",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "borderline_needs_review",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": false,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/deepfake/v08_lipsync.mp4",
+    "label": "fake",
+    "score": 0.6487,
+    "verdict": "REJECTED",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "deepfake_detected",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/deepfake/v09_lipsync.mp4",
+    "label": "fake",
+    "score": 0.6487,
+    "verdict": "REJECTED",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "deepfake_detected",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/deepfake/v10_lipsync.mp4",
+    "label": "fake",
+    "score": 0.6487,
+    "verdict": "REJECTED",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "deepfake_detected",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/deepfake/v11_faceswap.mp4",
+    "label": "fake",
+    "score": 0.7602,
+    "verdict": "REJECTED",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "deepfake_detected",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/ai_service/test_media/videos/deepfake/v12_faceswap.mp4",
+    "label": "fake",
+    "score": 0.6666,
+    "verdict": "REJECTED",
+    "signals": [
+      "hf_high_confidence_frame",
+      "huggingface_model_used",
+      "compression_block_artifacts",
+      "deepfake_detected",
+      "color_temperature_inconsistency",
+      "skin_tone_instability",
+      "hf_temporal_instability",
+      "temporal_flicker_detected"
+    ],
+    "correct": true,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/backend/tmp/uploads/face_test.jpg",
+    "label": "unknown",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "cartoon_illustration_blocked",
+      "limited_color_palette",
+      "uniform_edge_sharpness",
+      "synthetic_generation_signal"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/backend/tmp/uploads/test.jpg",
+    "label": "unknown",
+    "score": 0.8167,
+    "verdict": "REJECTED",
+    "signals": [
+      "no_clear_faces_detected",
+      "face_detection_missed_portrait",
+      "synthetic_generation_signal",
+      "fail_closed",
+      "content_type_real_photo",
+      "signal_analysis_fallback",
+      "high_frequency_artifacts"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "test_assets/real_1.jpg",
+    "label": "unknown",
+    "score": 0.0479,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "test_assets/real_2.jpg",
+    "label": "unknown",
+    "score": 0.0479,
+    "verdict": "APPROVED",
+    "signals": [
+      "huggingface_model_used",
+      "gan_spectral_fingerprint",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "test_assets/real_3.jpg",
+    "label": "unknown",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/src/assets/hero-man.png",
+    "label": "unknown",
+    "score": 0.0483,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/src/assets/hero-model.jpg",
+    "label": "unknown",
+    "score": 0.1478,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "unnatural_face_texture",
+      "content_type_real_photo",
+      "reencoding_block_artifacts"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/src/assets/user-1.jpg",
+    "label": "unknown",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/src/assets/user-2.jpg",
+    "label": "unknown",
+    "score": 0.1138,
+    "verdict": "APPROVED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "huggingface_model_used",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  },
+  {
+    "file": "verified-stream/src/assets/user-3.jpg",
+    "label": "unknown",
+    "score": 1.0,
+    "verdict": "REJECTED",
+    "signals": [
+      "gan_spectral_fingerprint",
+      "face_blending_seam",
+      "gan_ensemble_model_used",
+      "synthetic_generation_signal",
+      "huggingface_model_used",
+      "eye_region_gan_artifact",
+      "color_channel_decoupled",
+      "content_type_real_photo"
+    ],
+    "correct": null,
+    "missing": false
+  }
+]

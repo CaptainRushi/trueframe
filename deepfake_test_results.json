@@ -1,0 +1,126 @@
+{
+  "summary": {
+    "total": 16,
+    "tp": 0,
+    "fn": 10,
+    "tn": 6,
+    "fp": 0,
+    "accuracy": 37.5,
+    "fnr": 100.0,
+    "fpr": 0.0
+  },
+  "results": [
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_01.jpg",
+      "label": "fake",
+      "score": 0.0395,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_02.jpg",
+      "label": "fake",
+      "score": 0.0723,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_03.jpg",
+      "label": "fake",
+      "score": 0.0402,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_04.jpg",
+      "label": "fake",
+      "score": 0.0297,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_05.jpg",
+      "label": "fake",
+      "score": 0.1698,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_06.jpg",
+      "label": "fake",
+      "score": 0.056,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_07.jpg",
+      "label": "fake",
+      "score": 0.0414,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_08.jpg",
+      "label": "fake",
+      "score": 0.0386,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_09.jpg",
+      "label": "fake",
+      "score": 0.0703,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "test_assets\\stylegan_tpdne\\tpdne_10.jpg",
+      "label": "fake",
+      "score": 0.0399,
+      "verdict": "APPROVED",
+      "correct": false
+    },
+    {
+      "file": "verified-stream/ai_service/test_media/real/portraits/r01_portrait.jpg",
+      "label": "real",
+      "score": 0.0643,
+      "verdict": "APPROVED",
+      "correct": true
+    },
+    {
+      "file": "verified-stream/ai_service/test_media/real/portraits/r05_portrait.jpg",
+      "label": "real",
+      "score": 0.0963,
+      "verdict": "APPROVED",
+      "correct": true
+    },
+    {
+      "file": "verified-stream/ai_service/test_media/real/portraits/r10_portrait.jpg",
+      "label": "real",
+      "score": 0.0448,
+      "verdict": "APPROVED",
+      "correct": true
+    },
+    {
+      "file": "verified-stream/ai_service/test_media/real/selfies/r31_selfie.jpg",
+      "label": "real",
+      "score": 0.0885,
+      "verdict": "APPROVED",
+      "correct": true
+    },
+    {
+      "file": "verified-stream/ai_service/test_media/real/selfies/r35_selfie.jpg",
+      "label": "real",
+      "score": 0.1189,
+      "verdict": "APPROVED",
+      "correct": true
+    },
+    {
+      "file": "176527-855920754_medium.mp4",
+      "label": "real",
+      "score": 0.3796,
+      "verdict": "APPROVED",
+      "correct": true
+    }
+  ]
+}
