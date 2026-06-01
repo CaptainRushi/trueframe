@@ -49,7 +49,7 @@ No test runner is currently configured.
 2. Save file to `/tmp/uploads`, compute SHA256 hash
 3. Spawn `ai_service/main.py` — deepfake detection with weighted score fusion:
    - EfficientNet ONNX model (0.45) + artifact analysis (0.25) + temporal consistency (0.20) + metadata scan (0.10)
-4. Verdict: score >= 0.60 → REJECTED, 0.40–0.59 → REJECTED (unsafe), < 0.40 → APPROVED
+4. Verdict (3-tier): < 0.60 → APPROVED, 0.60–0.74 → UNDER_REVIEW, >= 0.75 → REJECTED
 5. If approved, spawn `ai_service/context_verify.py` for caption/fake-news check
 6. Log result to `verification_logs`, update user trust score, upload to Supabase Storage if REAL
 

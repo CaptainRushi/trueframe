@@ -47,6 +47,7 @@ ai_service/*.pyc
 
 # AI Models (large files)
 ai_service/models/*.onnx
+ai_service/models/*.onnx.data
 ai_service/models/*.h5
 ai_service/models/*.pb
 
