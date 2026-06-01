@@ -12,9 +12,10 @@ WEIGHT_COMPRESSION = 0.15
 # THRESHOLD_APPROVE to THRESHOLD_REJECT → UNDER_REVIEW
 # >= THRESHOLD_REJECT  → REJECTED (deepfake)
 #
-# FIX: Was 0.60/0.80 — this caused real images with any signal activity to
-# land in UNDER_REVIEW or REJECTED. Widened the APPROVED band significantly.
-THRESHOLD_APPROVE = 0.40
+# FIX: Was 0.40 — this caused real JPEG images with compression artifacts to
+# land in UNDER_REVIEW. Raised to 0.60 so only genuinely suspicious content
+# (strong signal + boost > 0.60) triggers review.
+THRESHOLD_APPROVE = 0.60
 THRESHOLD_REJECT = 0.75
 
 # --- MULTI-PATCH CONFIG ---
