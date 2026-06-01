@@ -1644,8 +1644,8 @@ def analyze(file_path):
                 if "gan_spectral_fingerprint" in signals:
                     boost += 0.10  # spectral fingerprint corroborates GAN model
             boost = min(boost, 0.28)   # cap raised to 0.28 for images with GAN detection
-    else:
-        # Signal-only fallback: all signals count
+    elif has_faces:
+        # Signal-only fallback with faces: all signals count
         if "gan_spectral_fingerprint"   in signals: boost += 0.15
         if "face_blending_seam"         in signals: boost += 0.12
         if "eye_region_gan_artifact"    in signals: boost += 0.12
@@ -1656,6 +1656,12 @@ def analyze(file_path):
         if "abnormal_noise_pattern"     in signals: boost += 0.06
         if "reencoding_block_artifacts" in signals: boost += 0.06
         boost = min(boost, 0.35)
+    else:
+        # Signal-only fallback, no face detected: only boost on genuinely
+        # deepfake-specific signals (not JPEG/noise artifacts from full frame).
+        if "gan_spectral_fingerprint"   in signals: boost += 0.10
+        if "color_channel_decoupled"    in signals: boost += 0.06
+        boost = min(boost, 0.16)
 
     final_score = float(np.clip(final_score + boost, 0.0, 1.0))
 
