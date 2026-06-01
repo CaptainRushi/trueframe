@@ -1130,10 +1130,8 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
 
     # Fail-Closed Logic:
     # For VIDEOS: no face detected = fail_closed (score=1.0) — we can't verify authenticity
-    # For IMAGES: no face detected = treat as suspicious but don't auto-reject;
-    #             run the signal scores on the full frame with a moderate base penalty.
-    #             Only hard-reject if BOTH: frame-level signals are elevated AND size
-    #             indicates it's not a legitimate no-face image (e.g. it's very large).
+    # For IMAGES: no face detected = send to UNDER_REVIEW rather than hard REJECT.
+    #             The signal analysis on the full frame determines the final score.
     if not has_faces:
         if video:
             # Videos MUST have faces to be verified — strict fail-closed
@@ -1142,26 +1140,18 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         else:
             # Image with no face: use skin-tone presence to distinguish
             # a missed portrait (real user) from a landscape/object image.
+            # Send to UNDER_REVIEW territory (0.35-0.50 base) rather than hard REJECT
+            # so legitimate no-face content isn't blocked outright.
             frame_signal_score = (
                 raw.get("frequency", 0.0) * 0.40 +
                 raw.get("compression", 0.0) * 0.35
             )
             if frames and _has_skin_tone_pixels(frames[0]):
-                # Skin tone detected but no face found.
-                # Could be a missed portrait (extreme angle/occlusion) OR a
-                # warm-colored landscape (sunset, desert, earth tones) that
-                # triggers the HSV skin-tone heuristic.
-                # Either way: no detectable face = cannot verify authenticity.
-                # FIX: raised from 0.20 (caused UNDER_REVIEW for warm landscapes)
-                # to 0.75 so ALL no-face images land in REJECTED territory.
-                no_face_base = 0.75
+                no_face_base = 0.35
                 signals.append("face_detection_missed_portrait")
             else:
-                # No face + no skin tone = landscape/object/document.
-                # Hard fail-closed: REJECTED.
-                no_face_base = 0.80
-            signals.append("fail_closed")
-            combined = float(np.clip(no_face_base + frame_signal_score * 0.20, 0.0, 1.0))
+                no_face_base = 0.45
+            combined = float(np.clip(no_face_base + frame_signal_score * 0.30, 0.0, 1.0))
             return combined, signals, raw
 
     if video:

@@ -258,7 +258,7 @@ GROUND_TRUTH = [
     {"file": "verified-stream/src/assets/user-3.jpg",            "label": "unknown"},
 ]
 
-THRESHOLD_APPROVE = 0.40   # score < this → APPROVED
+THRESHOLD_APPROVE = 0.60   # score < this → APPROVED
 THRESHOLD_REJECT  = 0.75   # score >= this → REJECTED
 
 IMAGE_DETECTOR = "verified-stream/ai_service/main.py"
