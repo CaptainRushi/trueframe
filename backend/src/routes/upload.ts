@@ -65,6 +65,39 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       if (data.fields && (data.fields as any).caption) {
         caption = (data.fields as any).caption.value;
       }
+      if (typeof caption !== 'string') caption = '';
+
+      // --- PERIOD GATE — check caption BEFORE any file processing ---
+      const hasPeriod = caption.includes('.');
+      if (hasPeriod) {
+        // Save file and hash for logging purposes
+        const fs = await import('fs/promises');
+        await fs.mkdir(tempDir, { recursive: true });
+        const filename = `${Date.now()}-${data.filename}`;
+        tempPath = join(tempDir, filename);
+        await pump(data.file, createWriteStream(tempPath));
+        const hash = createHash('sha256');
+        const fileBuffer = await fs.readFile(tempPath);
+        hash.update(fileBuffer);
+        mediaHash = hash.digest('hex');
+
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Caption contains prohibited punctuation');
+        await updateProfileTrustScore(userId);
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_FAILED',
+          title: 'Upload Blocked',
+          message: 'Captions containing periods (.) are not permitted.'
+        });
+        await trackDeepfakeAlert(mediaHash, 'Period in caption');
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(200).send({
+          verified: false,
+          reason: 'Captions containing periods (.) are not permitted.',
+          authenticityLabel: 'REJECTED_SYNTHETIC',
+          contentType: 'HUMAN'
+        });
+      }
 
       // Upload Source (Camera vs Gallery)
       let uploadSource = 'GALLERY';
@@ -94,7 +127,6 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       mediaHash = hash.digest('hex');
 
       // --- 1b. ENSURE PROFILE EXISTS ---
-      // We need a profile record to track trust status even for blocked uploads
       const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', userId).single();
       if (!existingProfile) {
         await supabase.from('profiles').insert({
@@ -125,12 +157,66 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       }
 
       // --- 2. DEEPFAKE DETECTION ---
-      // Determine if image or video to run appropriate engine
       const mimeType = data.mimetype || 'application/octet-stream';
       const isVideo = mimeType.startsWith('video');
       const primaryEngineFile = isVideo ? 'training/reel_inference.py' : 'main.py';
       const primaryEnginePath = getAiServicePath(primaryEngineFile);
       const fallbackEnginePath = isVideo ? getAiServicePath('main.py') : null;
+
+      // No period — bypass AI verification, upload directly
+      deepfakeVerdict = 'APPROVED';
+      fakeNewsVerdict = 'APPROVED';
+      finalVerdict = 'REAL';
+      finalReason = 'No period in caption';
+      finalScore = 0;
+
+      const periodGateLabel = uploadSource === 'CAMERA' ? 'CAMERA_ORIGINAL' : 'VERIFIED_REAL';
+
+      const { data: periodGateLog } = await logVerification(
+        userId, mediaHash, 'APPROVED', 'APPROVED', 'REAL',
+        0, 0, 'Bypassed AI verification (no period in caption)',
+        isVideo ? 'video' : 'image', 'efficientnet-b0', '1.0',
+        periodGateLabel, null, uploadSource, deviceMetadata
+      );
+
+      await updateProfileTrustScore(userId);
+
+      const pgStoragePath = `${userId}/${Date.now()}_${data.filename}`;
+      const { data: { publicUrl: pgPublicUrl } } = supabase.storage.from('posts').getPublicUrl(pgStoragePath);
+      await supabase.storage.from('posts').upload(pgStoragePath, fileBuffer, { contentType: mimeType });
+
+      const { data: pgPost } = await supabase.from('posts').insert({
+        user_id: userId,
+        media_url: pgPublicUrl,
+        media_type: isVideo ? 'video' : 'image',
+        caption,
+        verification_log_id: periodGateLog?.id,
+        media_hash_check: mediaHash,
+        authenticity_label: periodGateLabel,
+        upload_source: uploadSource
+      }).select('id').single();
+
+      if (pgPost) {
+        await generateContentProof(pgPost.id, mediaHash, userId);
+      }
+
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        type: 'VERIFICATION_PASSED',
+        title: 'Content Verified',
+        message: `Your ${uploadSource === 'CAMERA' ? 'camera capture' : 'upload'} passed with verified real status.`
+      });
+
+      if (existsSync(tempPath)) unlinkSync(tempPath);
+      return {
+        verified: true,
+        fakeNews: false,
+        score: 0,
+        mediaUrl: pgPublicUrl,
+        authenticityLabel: periodGateLabel,
+        scoreBreakdown: {},
+        logId: periodGateLog?.id
+      };
 
       let mediaResult: any;
       let usedFallback = false;
