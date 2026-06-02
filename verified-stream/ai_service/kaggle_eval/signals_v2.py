@@ -89,7 +89,7 @@ def signal_dct_artifacts(crops):
         return 0.0, False
     
     mean_score = float(np.mean(scores))
-    triggered = mean_score > 0.40
+    triggered = mean_score > 0.35
     return mean_score, triggered
 
 
@@ -152,7 +152,7 @@ def signal_laplacian_pyramid(crops):
         return 0.0, False
     
     mean_score = float(np.mean(scores))
-    triggered = mean_score > 0.40
+    triggered = mean_score > 0.38
     return mean_score, triggered
 
 
@@ -255,7 +255,7 @@ def signal_enhanced_seam(crops):
         return 0.0, False
     
     mean_score = float(np.mean(scores))
-    triggered = mean_score > 0.35
+    triggered = mean_score > 0.33
     return mean_score, triggered
 
 
@@ -326,7 +326,7 @@ def signal_wavelet_analysis(crops):
         return 0.0, False
     
     mean_score = float(np.mean(scores))
-    triggered = mean_score > 0.35
+    triggered = mean_score > 0.32
     return mean_score, triggered
 
 
@@ -395,7 +395,7 @@ def signal_color_histogram(crops):
         return 0.0, False
     
     mean_score = float(np.mean(scores))
-    triggered = mean_score > 0.40
+    triggered = mean_score > 0.38
     return mean_score, triggered
 
 

@@ -31,6 +31,7 @@ import sys
 import os
 import json
 import time
+import glob
 import numpy as np
 import cv2
 from config import THRESHOLD_APPROVE, THRESHOLD_REJECT
@@ -101,30 +102,108 @@ def _sample_video_frames(path, n=MAX_FRAMES):
 
 # ─────────────────── ONNX MODEL INFERENCE ────────────
 
-def _get_onnx_session():
+_ONNX_SESSIONS = []
+
+def _load_all_onnx_models():
     """
-    Load the LightFakeDetect ONNX model if available.
-    Returns (session, model_dir) or (None, None).
+    Discover and load all ONNX models from the models directory.
+    Each model's input shape is auto-detected.
+    Populates the global _ONNX_SESSIONS list with (session, input_info) tuples.
     """
+    global _ONNX_SESSIONS
+    if _ONNX_SESSIONS:
+        return _ONNX_SESSIONS
+
     try:
         import onnxruntime as ort
-        model_dir = os.path.join(os.path.dirname(__file__), "models")
-        candidates = [
-            os.path.join(model_dir, "lightfakedetect.onnx"),
-            os.path.join(model_dir, "trueframe_reels_detector.onnx"),
-        ]
-        onnx_path = next((path for path in candidates if os.path.exists(path)), None)
-        if onnx_path is None:
-            return None, None
-        sess = ort.InferenceSession(
-            onnx_path,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-        )
-        _log(f"[LightFakeDetect] ONNX model loaded from {onnx_path}")
-        return sess, model_dir
+    except ImportError:
+        _log("[ONNX] onnxruntime not installed")
+        return []
+
+    from config import MODELS_DIR
+    model_paths = sorted(glob.glob(os.path.join(MODELS_DIR, "*.onnx")))
+    if not model_paths:
+        _log("[ONNX] No .onnx models found in models/ directory")
+        return []
+
+    loaded = []
+    for path in model_paths:
+        try:
+            sess = ort.InferenceSession(
+                path,
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            )
+            inp = sess.get_inputs()[0]
+            shape = inp.shape
+            _log(f"[ONNX] Loaded: {os.path.basename(path)} — input={inp.name} shape={shape}")
+            loaded.append((sess, {"name": inp.name, "shape": shape}))
+        except Exception as e:
+            _log(f"[ONNX] Skipped {os.path.basename(path)}: {e}")
+
+    _ONNX_SESSIONS = loaded
+    return loaded
+
+
+def _run_onnx_inference_generic(sess, input_info, face_crops):
+    """
+    Run an ONNX model on face crops, auto-adapting to the model's expected input shape.
+
+    Supports:
+    - (N, 3, H, W) — per-image classifier (e.g., EfficientNet, ViT)
+    - (N, T, 3, H, W) — temporal model (e.g., LightFakeDetect GRU)
+    - (N, C, H, W) with C != 3 — feature models, etc.
+    """
+    try:
+        shape = input_info["shape"]
+        num_dims = len(shape)
+
+        if num_dims == 4:
+            if isinstance(shape[1], int) and shape[1] == 3:
+                n, c, h, w = shape
+                prepared = []
+                for crop in face_crops:
+                    resized = cv2.resize(crop, (int(w), int(h)))
+                    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+                    norm = (rgb - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                    prepared.append(norm.transpose(2, 0, 1))
+                batch = np.stack(prepared) if prepared else np.zeros((1, c, int(h), int(w)), dtype=np.float32)
+            elif isinstance(shape[3], int) and shape[3] == 3:
+                n, h, w, c = shape
+                prepared = []
+                for crop in face_crops:
+                    resized = cv2.resize(crop, (int(w), int(h)))
+                    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+                    prepared.append(rgb)
+                batch = np.stack(prepared) if prepared else np.zeros((1, int(h), int(w), 3), dtype=np.float32)
+            else:
+                return None
+
+            out = sess.run(None, {input_info["name"]: batch})
+            probs = np.array(out[0]).flatten()
+            if probs.size > 1:
+                return float(np.clip(probs[1], 0.0, 1.0)) if probs.shape[0] >= 2 else float(np.clip(probs[0], 0.0, 1.0))
+            return float(np.clip(probs[0], 0.0, 1.0))
+
+        elif num_dims == 5:
+            b, t, c, h, w = shape
+            T = int(t) if isinstance(t, int) else min(len(face_crops), 10)
+            prepared = []
+            for crop in face_crops[:T]:
+                resized = cv2.resize(crop, (int(w), int(h)))
+                rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+                norm = (rgb - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                prepared.append(norm.transpose(2, 0, 1))
+            while len(prepared) < T:
+                prepared.append(prepared[-1] if prepared else np.zeros((int(c), int(h), int(w)), dtype=np.float32))
+            seq = np.stack(prepared)[np.newaxis].astype(np.float32)
+            out = sess.run(None, {input_info["name"]: seq})
+            return float(np.clip(out[0].flatten()[0], 0.0, 1.0))
+
+        return None
+
     except Exception as e:
-        _log(f"[LightFakeDetect] ONNX load failed: {e}")
-        return None, None
+        _log(f"[ONNX] Model inference error: {e}")
+        return None
 
 
 def _normalize_crop(face_bgr):
@@ -208,7 +287,7 @@ def _build_detector():
         device = "cuda" if torch.cuda.is_available() else "cpu"
         mtcnn = MTCNN(
             image_size=224, margin=30, min_face_size=20,
-            thresholds=[0.5, 0.6, 0.6],   # lowered from [0.6, 0.7, 0.7] for better recall
+            thresholds=[0.4, 0.5, 0.5],
             keep_all=False, post_process=False, device=device,
         )
 
@@ -331,61 +410,80 @@ def _haar_fallback(frame_bgr):
     return None
 
 
+def _enhance_frame_clahe(frame):
+    """Apply CLAHE to improve face detection in poor lighting."""
+    try:
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        enhanced = cv2.merge([l, a, b])
+        return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+    except Exception:
+        return frame
+
+
 def _detect_face(frame):
     """Detect and return the largest face crop from a frame using cached detector."""
     detector = _get_detector()
-    return detector(frame)
+    face = detector(frame)
+    if face is None:
+        face = detector(_enhance_frame_clahe(frame))
+    return face
 
 
-def _run_onnx_inference(sess, frames):
+def _run_onnx_ensemble(frames):
     """
-    Run LightFakeDetect ONNX inference on a list of frames.
+    Run all available ONNX models on frames and fuse their predictions.
 
-    Extracts face crops from frames, normalizes, and feeds the sequence
-    through the GRU to get P(fake).
-
-    Returns float P(fake) in [0, 1], or None if inference fails.
+    Returns (ensemble_score, model_count, signal) or (None, 0, '').
     """
-    try:
-        crops = []
-        for frame in frames:
-            face = _detect_face(frame)
-            if face is None:
-                bright = cv2.convertScaleAbs(frame, alpha=1.3, beta=20)
-                face = _detect_face(bright)
-            if face is not None and face.size > 0:
-                crops.append(_normalize_crop(face))
+    sessions = _load_all_onnx_models()
+    if not sessions:
+        return None, 0, ""
 
-        if len(crops) < 1:
-            return None   # No faces detected — can't use model
+    # Get face crops
+    face_crops = _get_face_crops(frames)
+    if not face_crops:
+        return None, 0, ""
 
-        # Pad or truncate to 10 frames for model's expected temporal dimension
-        if len(crops) < 10:
-            while len(crops) < 10:
-                crops.append(crops[-1] if crops else crops)
-        elif len(crops) > 10:
-            crops = crops[:10]
+    scores = []
+    for sess, info in sessions:
+        try:
+            score = _run_onnx_inference_generic(sess, info, face_crops)
+            if score is not None:
+                scores.append(score)
+        except Exception as e:
+            _log(f"[ONNX] Model error: {e}")
 
-        # Stack into (1, 10, 3, 224, 224)
-        seq = np.stack(crops, axis=0)[np.newaxis].astype(np.float32)
-        input_name = sess.get_inputs()[0].name
-        output = sess.run(None, {input_name: seq})
-        prob = float(output[0].flatten()[0])
-        return float(np.clip(prob, 0.0, 1.0))
-    except Exception as e:
-        _log(f"[LightFakeDetect] ONNX inference error: {e}")
-        return None
+    if not scores:
+        return None, 0, ""
+
+    mean_score = float(np.mean(scores))
+    max_score = float(np.max(scores))
+    # Use max if models disagree strongly (std > 0.3), else mean
+    if len(scores) >= 2 and np.std(scores) > 0.3:
+        fused = max_score
+        _log(f"[ONNX-Ensemble] Models disagree: mean={mean_score:.4f}, max={max_score:.4f}, using max")
+    else:
+        fused = mean_score
+
+    return fused, len(scores), "onnx_model_ensemble"
 
 
-def _get_face_crops(frames, min_face_area_ratio=0.015):
+def _get_face_crops(frames, min_face_area_ratio=0.012):
     """Detect and crop faces from each frame. Uses primary detector (MTCNN),
-    then brightened retry, then permissive Haar cascade as final fallback.
+    then CLAHE enhancement, brightened retry, then permissive Haar cascade.
 
-    min_face_area_ratio: minimum ratio of face_area / image_area required to
-    count the detection. Filters out Haar/MTCNN false positives on landscapes
-    (rocks, clouds, tree branches) which produce tiny face-like regions.
-    A real portrait face typically covers ≥2% of the image; landscape FPs
-    are often <1%.
+    Uses multi-pass detection to maximize face capture rate:
+    1. Primary detector on raw frame
+    2. CLAHE-enhanced frame (better for poor lighting)
+    3. Brightened frame
+    4. Haar cascade fallback
+    5. CLAHE + brightened Haar fallback
+
+    min_face_area_ratio lowered to 0.012 (from 0.015) to catch smaller face
+    detections typical of wide-angle portrait shots.
     """
     crops    = []
     detector = _get_detector()
@@ -393,18 +491,20 @@ def _get_face_crops(frames, min_face_area_ratio=0.015):
         img_area = frame.shape[0] * frame.shape[1] if frame is not None else 1
         face = detector(frame)
         if face is None:
+            face = detector(_enhance_frame_clahe(frame))
+        if face is None:
             bright = cv2.convertScaleAbs(frame, alpha=1.4, beta=30)
             face   = detector(bright)
         if face is None:
-            # Final fallback: permissive Haar cascade (catches profiles, unusual lighting)
+            face = detector(_enhance_frame_clahe(bright))
+        if face is None:
             face = _haar_fallback(frame)
-            if face is None:
-                bright = cv2.convertScaleAbs(frame, alpha=1.6, beta=50)
-                face   = _haar_fallback(bright)
+        if face is None:
+            bright = cv2.convertScaleAbs(frame, alpha=1.6, beta=50)
+            face   = _haar_fallback(bright)
+        if face is None:
+            face = _haar_fallback(_enhance_frame_clahe(frame))
         if face is not None and face.size > 0:
-            # Reject detections that are too small relative to the image.
-            # Real portrait faces cover ≥1.5% of total pixels.
-            # Landscape false positives (rocks, clouds, tree forms) are typically <1%.
             face_area = face.shape[0] * face.shape[1]
             if face_area / img_area >= min_face_area_ratio:
                 crops.append(cv2.resize(face, FRAME_SIZE))
@@ -434,25 +534,28 @@ def _get_mtcnn_crops(frames):
         img_area = frame.shape[0] * frame.shape[1] if frame is not None else 1
         face = detector(frame)
         if face is None:
+            face = detector(_enhance_frame_clahe(frame))
+        if face is None:
             bright = cv2.convertScaleAbs(frame, alpha=1.4, beta=30)
             face   = detector(bright)
+        if face is None:
+            face = detector(_enhance_frame_clahe(bright))
         if face is None and _has_skin_tone_pixels(frame):
-            # Selective Haar fallback: only when skin tone present.
-            # A real face MTCNN missed is likely 2–38% of image.
-            # Landscape Haar FPs (warm sunset/desert) are 40–50% → filtered.
             haar_face = _haar_fallback(frame)
+            if haar_face is None:
+                haar_face = _haar_fallback(_enhance_frame_clahe(frame))
             if haar_face is None:
                 bright2 = cv2.convertScaleAbs(frame, alpha=1.6, beta=50)
                 haar_face = _haar_fallback(bright2)
             if haar_face is not None and haar_face.size > 0:
                 ratio = (haar_face.shape[0] * haar_face.shape[1]) / img_area
-                if 0.02 <= ratio <= 0.38:
+                if 0.015 <= ratio <= 0.42:
                     face = haar_face
                     _log(f"[FaceDetect] Skin-tone Haar fallback: "
-                         f"ratio={ratio:.3f} ACCEPTED (MTCNN missed face)")
+                         f"ratio={ratio:.3f} ACCEPTED")
                 else:
                     _log(f"[FaceDetect] Skin-tone Haar fallback: "
-                         f"ratio={ratio:.3f} REJECTED (outside 0.02-0.38 range, likely landscape FP)")
+                         f"ratio={ratio:.3f} REJECTED (outside range)")
         if face is not None and face.size > 0:
             crops.append(cv2.resize(face, FRAME_SIZE))
     return crops
@@ -608,9 +711,8 @@ def _signal_frequency_artifacts(frames):
         ratio = hf_power / (ref_power + 1e-6)
         scores.append(ratio)
     mean_ratio = float(np.mean(scores))
-    score = min(1.0, max(0.0, (mean_ratio - 0.75) / 0.30))
-    # Raised from 0.85 → 0.92: JPEG compression legitimately boosts HF content
-    triggered = mean_ratio > 0.92
+    score = min(1.0, max(0.0, (mean_ratio - 0.70) / 0.35))
+    triggered = mean_ratio > 0.88
     return score, triggered
 
 
@@ -648,9 +750,8 @@ def _signal_block_artifacts(frames):
     if not scores:
         return 0.0, False
     mean_ratio = float(np.mean(scores))
-    score = min(1.0, max(0.0, mean_ratio * 4.0))
-    # Raised from 0.20 → 0.35: social-media JPEG always has block artifacts
-    triggered = mean_ratio > 0.35
+    score = min(1.0, max(0.0, mean_ratio * 5.0))
+    triggered = mean_ratio > 0.30
     return score, triggered
 
 
@@ -664,18 +765,16 @@ def _signal_face_texture(crops):
         variances.append(float(np.var(lap)))
     mean_var = float(np.mean(variances))
     std_var  = float(np.std(variances))
-    # Lowered too_smooth from 80.0 → 50.0: compressed JPEG faces legitimately
-    # have lower Laplacian variance; 50.0 only catches truly AI-smoothed images
-    too_smooth   = mean_var < 50.0
+    too_smooth   = mean_var < 65.0
     too_sharp    = mean_var > 15000.0
-    unstable     = std_var / (mean_var + 1.0) > 2.0
+    unstable     = std_var / (mean_var + 1.0) > 1.8
     triggered = too_smooth or too_sharp or unstable
     if too_smooth:
-        score = min(1.0, 50.0 / (mean_var + 1.0))
+        score = min(1.0, 65.0 / (mean_var + 1.0))
     elif too_sharp:
         score = min(1.0, (mean_var - 15000.0) / 10000.0)
     elif unstable:
-        score = min(1.0, (std_var / (mean_var + 1.0) - 1.8) / 2.0)
+        score = min(1.0, (std_var / (mean_var + 1.0) - 1.6) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -712,11 +811,10 @@ def _signal_blending_edges(crops):
         return 0.0, False
     mean_ratio = float(np.mean(edge_ratios))
     mean_var_ratio = float(np.mean(variance_scores)) if variance_scores else 1.0
-    # Lowered trigger threshold: seams create >20% edge asymmetry
     deviation = abs(mean_ratio - 1.0)
     var_deviation = max(0.0, mean_var_ratio - 1.0)
-    triggered = deviation > 0.20 or var_deviation > 0.50
-    score = min(1.0, deviation / 0.6 * 0.6 + min(1.0, var_deviation / 2.0) * 0.4)
+    triggered = deviation > 0.15 or var_deviation > 0.40
+    score = min(1.0, deviation / 0.5 * 0.6 + min(1.0, var_deviation / 1.5) * 0.4)
     return score, triggered
 
 
@@ -731,14 +829,13 @@ def _signal_noise_floor(crops):
         noise_levels.append(float(np.mean(np.abs(gray - blurred))))
     mean_noise = float(np.mean(noise_levels))
     std_noise  = float(np.std(noise_levels))
-    # Conservative threshold — only flag truly noiseless images (GAN: noise < 0.6)
-    too_clean    = mean_noise < 0.6
-    inconsistent = std_noise / (mean_noise + 1e-6) > 1.5
+    too_clean    = mean_noise < 0.8
+    inconsistent = std_noise / (mean_noise + 1e-6) > 1.3
     triggered = too_clean or inconsistent
     if too_clean:
-        score = min(1.0, 0.6 / (mean_noise + 0.05))
+        score = min(1.0, 0.8 / (mean_noise + 0.05))
     elif inconsistent:
-        score = min(1.0, (std_noise / (mean_noise + 1e-6) - 1.5) / 2.0)
+        score = min(1.0, (std_noise / (mean_noise + 1e-6) - 1.3) / 2.0)
     else:
         score = 0.0
     return score, triggered
@@ -774,12 +871,10 @@ def _signal_face_gan_frequency(crops):
         ratio = hf_power / (lf_power + 1e-6)
         raw_ratios.append(ratio)
     mean_ratio = float(np.mean(raw_ratios))
-    # High-frequency excess (classic GAN artifact)
-    high_hf_score = min(1.0, max(0.0, (mean_ratio - 0.55) / 0.35))
-    # Low-frequency excess (oversmoothed GAN: too little HF content)
-    low_hf_score  = min(1.0, max(0.0, (0.38 - mean_ratio) / 0.18))
+    high_hf_score = min(1.0, max(0.0, (mean_ratio - 0.50) / 0.40))
+    low_hf_score  = min(1.0, max(0.0, (0.40 - mean_ratio) / 0.20))
     score     = max(high_hf_score, low_hf_score)
-    triggered = mean_ratio > 0.58 or mean_ratio < 0.38
+    triggered = mean_ratio > 0.54 or mean_ratio < 0.40
     return score, triggered
 
 
@@ -804,10 +899,10 @@ def _signal_skin_tone_consistency(crops):
         return 0.0, False
     hue_std = float(np.std(skin_hues))
     sat_std = float(np.std(skin_sats))
-    hue_score = min(1.0, max(0.0, (hue_std - 3.0) / 8.0))
-    sat_score = min(1.0, max(0.0, (sat_std - 12.0) / 20.0))
+    hue_score = min(1.0, max(0.0, (hue_std - 2.5) / 8.0))
+    sat_score = min(1.0, max(0.0, (sat_std - 10.0) / 20.0))
     score = 0.6 * hue_score + 0.4 * sat_score
-    triggered = hue_std > 4.5 or sat_std > 18.0
+    triggered = hue_std > 4.0 or sat_std > 16.0
     return float(score), triggered
 
 
@@ -841,11 +936,11 @@ def _signal_eye_region_artifacts(crops):
     if not channel_corrs:
         return 0.0, False
     mean_corr = float(np.mean(channel_corrs))
-    corr_score = min(1.0, max(0.0, (0.80 - mean_corr) / 0.30))
+    corr_score = min(1.0, max(0.0, (0.82 - mean_corr) / 0.30))
     mean_entropy = float(np.mean(edge_entropies)) if edge_entropies else 4.0
     ent_score = min(1.0, max(0.0, abs(mean_entropy - 4.0) / 1.5))
     score = 0.65 * corr_score + 0.35 * ent_score
-    triggered = mean_corr < 0.72 or abs(mean_entropy - 4.0) > 1.2
+    triggered = mean_corr < 0.75 or abs(mean_entropy - 4.0) > 1.1
     return float(score), triggered
 
 
@@ -873,11 +968,10 @@ def _signal_channel_decoupling(crops):
         return 0.0, False
     mean_min_corr = float(np.mean(corr_scores))
     mean_ch_diff  = float(np.mean(mean_diffs)) if mean_diffs else 0.0
-    # Conservative trigger (0.80): avoids false positives on real video frames
-    corr_score = min(1.0, max(0.0, (0.88 - mean_min_corr) / 0.25))
-    diff_score = min(1.0, mean_ch_diff / 60.0)
+    corr_score = min(1.0, max(0.0, (0.90 - mean_min_corr) / 0.25))
+    diff_score = min(1.0, mean_ch_diff / 50.0)
     score      = 0.7 * corr_score + 0.3 * diff_score
-    triggered  = mean_min_corr < 0.80 or mean_ch_diff > 30.0
+    triggered  = mean_min_corr < 0.82 or mean_ch_diff > 25.0
     return score, triggered
 
 
@@ -908,11 +1002,9 @@ def _signal_oversmoothed_skin(crops):
     if not patch_var_means:
         return 0.0, False
     mean_pv   = float(np.mean(patch_var_means))
-    # Lowered from 120.0 → 80.0: beauty-mode / filter apps legitimately produce
-    # low-variance faces that are NOT GAN-generated. Only flag extreme smoothing.
-    too_uniform = mean_pv < 80.0
+    too_uniform = mean_pv < 100.0
     triggered   = too_uniform
-    score       = min(1.0, 80.0 / (mean_pv + 1.0)) if too_uniform else 0.0
+    score       = min(1.0, 100.0 / (mean_pv + 1.0)) if too_uniform else 0.0
     return score, triggered
 
 
@@ -941,11 +1033,9 @@ def _signal_blur_similarity(crops):
     if not norm_mse_values:
         return 0.0, False
     mean_norm_mse = float(np.mean(norm_mse_values))
-    # GAN oversmooth: mean_norm_mse < 15   (barely changed by extra blur)
-    # Real face:      mean_norm_mse > 50   (real texture reacts to blur)
-    too_smooth = mean_norm_mse < 15.0
+    too_smooth = mean_norm_mse < 20.0
     triggered  = too_smooth
-    score      = min(1.0, 15.0 / (mean_norm_mse + 0.5)) if too_smooth else 0.0
+    score      = min(1.0, 20.0 / (mean_norm_mse + 0.5)) if too_smooth else 0.0
     return score, triggered
 
 
@@ -986,6 +1076,195 @@ def _signal_metadata(path):
     except Exception:
         pass
     return 0.0, False
+
+
+def _signal_ela_analysis(crops):
+    """
+    Error Level Analysis (ELA) — detects JPEG re-compression inconsistencies.
+
+    Deepfakes are re-encoded multiple times: original → GAN → export.
+    Each re-compression changes the JPEG Error Level Analysis signature.
+    Real single-compressed photos have consistent ELA across the image.
+    Fake/manipulated images show different ELA levels in face vs background.
+
+    Higher score = more suspicious.
+    """
+    if not crops:
+        return 0.0, False
+
+    scores = []
+    for crop in crops:
+        try:
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            # Re-compress at known quality
+            _, encoded = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            decoded = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
+            if decoded is None:
+                continue
+
+            # ELA difference map
+            ela_map = cv2.absdiff(gray.astype(np.float32), decoded.astype(np.float32))
+
+            h, w = ela_map.shape
+            # Split face into face-center and border regions
+            cy, cx = h // 2, w // 2
+            center_mask = np.zeros((h, w), dtype=bool)
+            center_mask[cy - h // 4:cy + h // 4, cx - w // 4:cx + w // 4] = True
+            border_mask = ~center_mask
+
+            center_ela = ela_map[center_mask].mean()
+            border_ela = ela_map[border_mask].mean()
+            if center_ela < 0.1:
+                continue
+
+            ela_ratio = border_ela / (center_ela + 1e-6)
+            ela_std = float(np.std(ela_map))
+
+            # Real photos: center and border ELA are similar (ratio ~0.8-1.2)
+            # Deepfakes: center (face) has different compression history than border → ratio deviates
+            deviation = abs(ela_ratio - 1.0)
+            score = min(1.0, deviation * 2.0)
+            # Bonus for very high ELA variance (multiple compression cycles)
+            if ela_std > 8.0:
+                score = min(1.0, score + 0.15)
+            scores.append(score)
+        except Exception:
+            continue
+
+    if not scores:
+        return 0.0, False
+
+    mean_score = float(np.mean(scores))
+    triggered = mean_score > 0.30
+    return mean_score, triggered
+
+
+def _signal_chromatic_aberration(crops):
+    """
+    Detect chromatic aberration inconsistencies — a lens artifact.
+
+    Real camera lenses produce slight chromatic aberration (color fringing
+    at high-contrast edges). GAN-generated faces have either:
+    - No chromatic aberration (too perfect)
+    - Unnatural color fringing patterns
+
+    Analyzes color channel misalignment at edge boundaries.
+    """
+    if not crops:
+        return 0.0, False
+
+    scores = []
+    for crop in crops:
+        try:
+            if crop.shape[2] < 3:
+                continue
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            edges = cv2.Canny(gray, 30, 100)
+            if edges.sum() < 100:
+                continue
+
+            b, g, r = cv2.split(crop.astype(np.float32))
+            # Measure color channel shift at edge pixels
+            edge_y, edge_x = np.where(edges > 0)
+            rg_diff = np.abs(r[edge_y, edge_x] - g[edge_y, edge_x])
+            gb_diff = np.abs(g[edge_y, edge_x] - b[edge_y, edge_x])
+            rb_diff = np.abs(r[edge_y, edge_x] - b[edge_y, edge_x])
+
+            # Real lenses: moderate channel differences at edges (natural CA)
+            # GANs: very low (no CA) or very high (unrealistic CA)
+            mean_rg = float(np.mean(rg_diff))
+            mean_gb = float(np.mean(gb_diff))
+            mean_rb = float(np.mean(rb_diff))
+
+            # Too little CA (GAN oversmoothed edges)
+            low_ca = mean_rg < 1.5 and mean_gb < 1.5
+            # Too much or inconsistent CA
+            high_ca = mean_rb > 20.0
+
+            if low_ca and high_ca:
+                scores.append(0.6)
+            elif low_ca:
+                scores.append(min(1.0, (1.5 - mean_rg) / 1.5))
+            elif high_ca:
+                scores.append(min(1.0, (mean_rb - 20.0) / 20.0))
+            else:
+                scores.append(0.0)
+        except Exception:
+            continue
+
+    if not scores:
+        return 0.0, False
+
+    mean_score = float(np.mean(scores))
+    triggered = mean_score > 0.35
+    return mean_score, triggered
+
+
+def _signal_noise_inconsistency(crops):
+    """
+    Detect noise pattern inconsistency.
+
+    Real camera photos have characteristic sensor noise patterns.
+    GAN-generated images lack realistic sensor noise, or have
+    uniform synthetic noise across the entire image.
+
+    Measures: local noise variance across patches.
+    Real photos: noise varies naturally (shadows = more noise, bright = less).
+    GANs: noise is unnaturally uniform or absent.
+    """
+    if not crops:
+        return 0.0, False
+
+    scores = []
+    for crop in crops:
+        try:
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            h, w = gray.shape
+            # Extract noise by subtracting Gaussian blur
+            blurred = cv2.GaussianBlur(gray, (5, 5), 1.0)
+            noise = gray - blurred
+
+            # Divide into 8x8 grid and compute noise variance per patch
+            ph, pw = h // 8, w // 8
+            patch_noise_vars = []
+            for py in range(8):
+                for px in range(8):
+                    y1, y2 = py * ph, (py + 1) * ph
+                    x1, x2 = px * pw, (px + 1) * pw
+                    patch = noise[y1:y2, x1:x2]
+                    if patch.size > 0:
+                        patch_noise_vars.append(float(np.var(patch)))
+
+            if len(patch_noise_vars) < 16:
+                continue
+
+            # Real photos: noise variance varies significantly across patches
+            # GANs: noise is uniform (low CV) or absent (very low mean)
+            noise_mean = float(np.mean(patch_noise_vars))
+            noise_cv = float(np.std(patch_noise_vars)) / (noise_mean + 1e-6)
+
+            # Too clean (GAN): very low noise everywhere
+            too_clean = noise_mean < 0.3
+            # Too uniform (GAN): all patches have same noise level
+            too_uniform = noise_cv < 0.3 and noise_mean < 3.0
+
+            if too_clean and too_uniform:
+                scores.append(0.7)
+            elif too_clean:
+                scores.append(min(1.0, (0.5 - noise_mean) / 0.5))
+            elif too_uniform:
+                scores.append(min(1.0, (0.4 - noise_cv) / 0.4))
+            else:
+                scores.append(0.0)
+        except Exception:
+            continue
+
+    if not scores:
+        return 0.0, False
+
+    mean_score = float(np.mean(scores))
+    triggered = mean_score > 0.30
+    return mean_score, triggered
 
 
 # ─────────────────── IMAGE QUALITY HELPERS ───────────
@@ -1051,8 +1330,6 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         # so suppress exposure-sensitive detectors for very bright/dark faces.
         extreme_lighting = _is_extreme_exposure(crops)
 
-        # Also compute extreme-bright flag separately: used to suppress blur_similarity
-        # (overexposed faces look smooth but are NOT deepfakes).
         gray_means  = [cv2.cvtColor(c, cv2.COLOR_BGR2GRAY).astype(np.float32).mean() for c in crops]
         extreme_bright = float(np.mean(gray_means)) > 210
 
@@ -1064,7 +1341,7 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         edge_score, edge_trig = _signal_blending_edges(crops)
         raw["edges"] = edge_score
         if edge_trig:
-            signals.append("face_blending_seam")  # edge seam is exposure-independent
+            signals.append("face_blending_seam")
 
         noise_score, noise_trig = _signal_noise_floor(crops)
         raw["noise"] = noise_score
@@ -1096,36 +1373,49 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
         if oversmooth_trig and not extreme_lighting:
             signals.append("oversmoothed_skin_detected")
 
-        # Blur similarity: brightness-normalised signal — safe for dark images.
-        # Suppressed ONLY for extreme overexposure (blown-out = no texture).
         blur_score, blur_trig = _signal_blur_similarity(crops)
         raw["blur_similarity"] = blur_score
         if blur_trig and not extreme_bright:
             signals.append("oversmoothed_blur_artifact")
 
+        # ── New Enhanced Signals ────────────────────────────────
+        ela_score, ela_trig = _signal_ela_analysis(crops)
+        raw["ela"] = ela_score
+        if ela_trig and not extreme_lighting:
+            signals.append("ela_recompression_artifact")
+
+        chroma_score, chroma_trig = _signal_chromatic_aberration(crops)
+        raw["chromatic_aberration"] = chroma_score
+        if chroma_trig:
+            signals.append("chromatic_aberration_anomaly")
+
+        noise_inc_score, noise_inc_trig = _signal_noise_inconsistency(crops)
+        raw["noise_inconsistency"] = noise_inc_score
+        if noise_inc_trig and not extreme_lighting:
+            signals.append("noise_pattern_inconsistency")
+
         # ── V2 Enhanced Signal Detectors ────────────────────────────
-        # Conservative trigger thresholds to avoid false positives on real images.
-        # NOTE: Only enhanced_seam is used — it reliably detects blending-seam
-        # artifacts (deepfakes with visible face borders) while real images
-        # max out at seam=0.41. Laplacian/wavelet/color/histogram are excluded
-        # because they fire on real lowlight/noisy/professional portraits.
-        # DCT analysis is excluded entirely — it fires identically (~0.80) on
-        # ALL JPEG images (JPEG compression ≠ GAN artifacts).
         if _V2_SIGNALS_AVAILABLE:
             v2_raw = run_all_v2_signals(crops, frames)
             for k, v in v2_raw.items():
                 raw[k] = v
-            if raw.get("enhanced_seam", 0) > 0.45:
+            if raw.get("enhanced_seam", 0) > 0.40:
                 signals.append("enhanced_blending_seam")
+            if raw.get("dct_artifacts", 0) > 0.45:
+                signals.append("dct_coefficient_anomaly")
+            if raw.get("wavelet", 0) > 0.40:
+                signals.append("wavelet_texture_artifact")
+            if raw.get("laplacian_pyramid", 0) > 0.45:
+                signals.append("laplacian_texture_artifact")
+            if raw.get("color_histogram", 0) > 0.45:
+                signals.append("color_histogram_anomaly")
     else:
         signals.append("no_clear_faces_detected")
         for k in ["texture", "edges", "noise", "gan_frequency",
                   "skin_tone", "eye_artifacts", "channel_decoupling", "oversmoothed",
-                  "blur_similarity"]:
+                  "blur_similarity", "ela", "chromatic_aberration", "noise_inconsistency"]:
             raw[k] = 0.0
 
-        # v2 signals can still run on full frames (no face crops needed for some)
-        # Pass frames as crops — DCT and wavelet work on any image, not just face crops
         if _V2_SIGNALS_AVAILABLE and frames:
             v2_raw = run_all_v2_signals(frames, frames)
             raw["dct_artifacts"] = v2_raw.get("dct_artifacts", 0.0)
@@ -1133,11 +1423,8 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             raw["laplacian_pyramid"] = v2_raw.get("laplacian_pyramid", 0.0)
             raw["enhanced_seam"] = v2_raw.get("enhanced_seam", 0.0)
             raw["color_histogram"] = v2_raw.get("color_histogram", 0.0)
-
-            # v2 signals require face crops — no-face path doesn't trigger them
-            # (enhanced_seam, laplacian, wavelet, color histogram all depend on
-            # facial region analysis; running on full frames produces false positives).
-            pass
+            if raw.get("enhanced_seam", 0) > 0.45:
+                signals.append("enhanced_blending_seam")
         else:
             for k in ["dct_artifacts", "laplacian_pyramid", "enhanced_seam", "wavelet", "color_histogram"]:
                 raw[k] = 0.0
@@ -1195,17 +1482,25 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             combined = float(np.clip(no_face_base + frame_signal_score * 0.40, 0.0, 1.0))
             return combined, signals, raw
 
+    # New signal scores
+    ela_score = raw.get("ela", 0.0)
+    chroma_score = raw.get("chromatic_aberration", 0.0)
+    noise_inc_score = raw.get("noise_inconsistency", 0.0)
+
     if video:
         v1_raw = (
-            raw["frequency"]         * 0.06 +
-            raw["texture"]           * 0.10 +
-            raw["edges"]             * 0.10 +
-            raw["noise"]             * 0.08 +
-            raw["color"]             * 0.06 +
-            raw["gan_frequency"]     * 0.22 +
-            raw["skin_tone"]         * 0.12 +
-            raw["eye_artifacts"]     * 0.14 +
-            raw["channel_decoupling"]* 0.12
+            raw["frequency"]         * 0.05 +
+            raw["texture"]           * 0.08 +
+            raw["edges"]             * 0.08 +
+            raw["noise"]             * 0.06 +
+            raw["color"]             * 0.05 +
+            raw["gan_frequency"]     * 0.18 +
+            raw["skin_tone"]         * 0.10 +
+            raw["eye_artifacts"]     * 0.12 +
+            raw["channel_decoupling"]* 0.10 +
+            ela_score                * 0.06 +
+            chroma_score             * 0.06 +
+            noise_inc_score          * 0.06
         )
         model_score = v1_raw / 1.00
         artifact_score = raw["compression"]
@@ -1220,37 +1515,32 @@ def _run_signal_analysis(file_path, frames, crops, has_faces, video):
             WEIGHT_COMPRESSION * raw["compression"]
         )
     else:
-        # Image Fallback Math Fix (Renormalized weights to sum to 1.0)
-        # We don't have temporal/expression/color signals for images.
         v1_raw = (
-            raw["frequency"]         * 0.06 +
-            raw["texture"]           * 0.10 +
-            raw["edges"]             * 0.10 +
-            raw["noise"]             * 0.08 +
-            raw["gan_frequency"]     * 0.22 +
-            raw["skin_tone"]         * 0.12 +
-            raw["eye_artifacts"]     * 0.14 +
-            raw["channel_decoupling"]* 0.12
+            raw["frequency"]         * 0.05 +
+            raw["texture"]           * 0.08 +
+            raw["edges"]             * 0.08 +
+            raw["noise"]             * 0.06 +
+            raw["gan_frequency"]     * 0.18 +
+            raw["skin_tone"]         * 0.10 +
+            raw["eye_artifacts"]     * 0.12 +
+            raw["channel_decoupling"]* 0.10 +
+            ela_score                * 0.07 +
+            chroma_score             * 0.07 +
+            noise_inc_score          * 0.07
         )
-        v1_normalizer = 0.94  # sum of v1 weights (color=0.0 for images)
+        v1_normalizer = 0.98
 
-        # V2 enhanced signals are excluded from model_score computation.
-        # They contribute ONLY through:
-        #   1. Boost when v2 signals fire (in analyze() after fusion)
-        #   2. V2_SIGNAL_STRONG → adaptive signal_weight (up to 0.60)
-        #   3. Signal_score floor (signal_score * 0.85-0.90)
-        # This avoids the ~0.05-0.10 baseline boost that v2 raw values
-        # would add to every image (DCT/Laplacian/Wavelet fire on JPEG real photos too).
         total_raw = v1_raw
-        total_normalizer = v1_normalizer  # 0.94
+        total_normalizer = v1_normalizer
         model_score = total_raw / total_normalizer if total_normalizer > 0 else 0.0
         artifact_score = raw["compression"]
 
-        # Use image-specific normalized weights summing to 1.0
         final_score = (
-            0.65 * model_score +
+            0.55 * model_score +
             0.25 * artifact_score +
-            0.10 * meta_score
+            0.10 * meta_score +
+            0.05 * ela_score +
+            0.05 * noise_inc_score
         )
 
     final_score = float(np.clip(final_score, 0.0, 1.0))
@@ -1279,11 +1569,8 @@ class ContentTypeClassifier:
     """
 
     # Thresholds (tuned to balance FP vs FN on mixed photo/art sets)
-    # FIX: raised CARTOON from 0.62 → 0.68 to prevent real portrait JPEGs
-    # (which have limited color palettes after JPEG quantization) from being
-    # falsely blocked as cartoons.
-    CARTOON_SCORE_THRESHOLD  = 0.68  # above this → CARTOON
-    AI_GEN_SCORE_THRESHOLD   = 0.60  # above this → AI_GENERATED
+    CARTOON_SCORE_THRESHOLD  = 0.65
+    AI_GEN_SCORE_THRESHOLD   = 0.58
 
     def classify(self, image: np.ndarray):
         """Returns (content_type, score, signals) where content_type is
@@ -1402,13 +1689,10 @@ class ContentTypeClassifier:
             ai_gen_score += 0.15
 
         # ── 6. High-frequency content ratio ──────────────────
-        # AI-generated images often have suspiciously low or patterned
-        # high-frequency content due to upsampling artifacts.
         f_transform = np.fft.fft2(gray.astype(np.float32))
         f_shift = np.fft.fftshift(f_transform)
         magnitude = np.abs(f_shift)
         cy, cx = h // 2, w // 2
-        # Inner 10% of frequency space = low freq; outer 40% = high freq
         low_r  = min(cy, cx) // 10
         high_r_start = int(min(cy, cx) * 0.40)
         y_grid, x_grid = np.ogrid[-cy:h-cy, -cx:w-cx]
@@ -1419,12 +1703,30 @@ class ContentTypeClassifier:
         high_energy = magnitude[high_mask].mean() + 1e-10
         hf_ratio = high_energy / low_energy
 
-        # AI images from diffusion models have atypically low or high HF ratio
         if hf_ratio < 0.003:
-            ai_gen_score += 0.25
+            ai_gen_score += 0.30
             signals.append('abnormal_frequency_profile_low_hf')
-        elif hf_ratio < 0.006:
-            ai_gen_score += 0.10
+        elif hf_ratio < 0.008:
+            ai_gen_score += 0.15
+
+        # ── 7. Upscaling artifact detection ─────────────────────
+        # AI-generated images are often generated at low resolution then
+        # upscaled. This creates characteristic interpolation artifacts
+        # detectable in gradient histograms.
+        grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        grad_mag = np.sqrt(grad_x**2 + grad_y**2)
+        # Compute gradient magnitude histogram (32 bins)
+        grad_hist, _ = np.histogram(grad_mag.ravel(), bins=32, range=(0, 255))
+        grad_hist = grad_hist.astype(np.float32) / (grad_hist.sum() + 1e-10)
+        # Entropy of gradient histogram: real photos have high entropy
+        # (many different edge strengths); upscaled AI images have lower entropy
+        grad_entropy = float(-np.sum(grad_hist * np.log2(grad_hist + 1e-10)))
+        if grad_entropy < 3.0:
+            ai_gen_score += 0.15
+            signals.append('low_gradient_entropy_upscaled')
+        elif grad_entropy < 3.8:
+            ai_gen_score += 0.08
 
         # ── Decision ─────────────────────────────────────────
         # Cartoon score dominates if both are elevated
@@ -1494,15 +1796,14 @@ def analyze(file_path):
     # Only bother computing if a face was confirmed by MTCNN.
     crops = _get_face_crops(frames) if has_faces else mtcnn_crops
 
-    # ── Priority 1: LightFakeDetect ONNX model ─────────
-    onnx_sess, _ = _get_onnx_session()
-    onnx_score   = None
+    # ── Priority 1: ONNX model ensemble ────────────────
+    onnx_score = None
+    onnx_model_count = 0
 
-    if onnx_sess is not None:
-        onnx_score = _run_onnx_inference(onnx_sess, frames)
-        if onnx_score is not None:
-            _log(f"[LightFakeDetect] model P(fake)={onnx_score:.4f}")
-            signals.append("lightfakedetect_model_used")
+    onnx_score, onnx_model_count, onnx_signal = _run_onnx_ensemble(frames)
+    if onnx_score is not None:
+        _log(f"[ONNX-Ensemble] {onnx_model_count} model(s) → P(fake)={onnx_score:.4f}")
+        signals.append(onnx_signal)
 
     # ── Priority 2: Signal analysis (always run) ───────
     signal_score, signal_signals, raw = _run_signal_analysis(
@@ -1512,14 +1813,16 @@ def analyze(file_path):
 
     # ── Score fusion ────────────────────────────────────
     if onnx_score is not None:
-        # Both available: model-weighted fusion (boost signals when expressions look off)
         signal_weight = 0.30
         model_weight = 0.70
         if video and raw.get("expression", 0.0) >= 0.55:
-            signal_weight = 0.45
-            model_weight = 0.55
+            signal_weight = 0.40
+            model_weight = 0.60
+        # If multiple models agree, trust them more
+        if onnx_model_count >= 2:
+            model_weight = min(0.80, model_weight + 0.05)
         final_score = model_weight * onnx_score + signal_weight * signal_score
-        _log(f"[LightFakeDetect] fused score={final_score:.4f} "
+        _log(f"[ONNX-Ensemble] fused score={final_score:.4f} "
              f"(model={onnx_score:.4f}, signals={signal_score:.4f})")
     else:
         # ── Priority 2: HuggingFace pre-trained model ──────
@@ -1724,66 +2027,62 @@ def analyze(file_path):
     # trigger constantly on real Pexels/Unsplash photos and must not be used
     # as boosters when a model score is available.
     # When pure signal fallback: use all signals.
-    _hf_active   = "huggingface_model_used"     in signals
-    _onnx_active = "lightfakedetect_model_used" in signals
+    _hf_active   = "huggingface_model_used"      in signals
+    _onnx_active = "onnx_model_ensemble" in signals
     _model_active = _hf_active or _onnx_active
 
     boost = 0.0
     if _model_active:
         if video:
-            # VIDEO: Only use signals that require TEMPORAL analysis — these are
-            # genuinely deepfake-specific and won't fire on real stock footage.
-            # REMOVED: skin_tone_instability, face_blending_seam, gan_spectral_fingerprint
-            # — all trigger on real footage with varied lighting/color grading.
-            if "temporal_face_distortion"        in signals: boost += 0.12
-            if "facial_expression_inconsistency" in signals: boost += 0.12
-            if "hf_temporal_instability"         in signals: boost += 0.10
-            boost = min(boost, 0.20)  # conservative cap for video
+            if "temporal_face_distortion"        in signals: boost += 0.14
+            if "facial_expression_inconsistency" in signals: boost += 0.14
+            if "hf_temporal_instability"         in signals: boost += 0.12
+            boost = min(boost, 0.25)
         else:
-            # IMAGE: Only video-deepfake signals that are genuinely compression-immune.
-            # Removed: oversmoothed_skin, oversmoothed_blur (trigger on real selfies,
-            # beauty filters, and portrait mode — not reliable deepfake indicators).
-            if "skin_tone_instability"            in signals: boost += 0.08
-            if "temporal_face_distortion"         in signals: boost += 0.08
-            if "facial_expression_inconsistency"  in signals: boost += 0.08
-            if "gan_ensemble_model_used"           in signals:
-                # Check if corroborated (NOT circular) — if not, reduce boost
-                NON_CIRCULAR = {"gan_spectral_fingerprint", "eye_region_gan_artifact",
-                                "enhanced_blending_seam", "multiscale_texture_artifact"}
-                if len(set(signals) & NON_CIRCULAR) >= 1:
-                    boost += 0.20
-                    if "gan_spectral_fingerprint" in signals:
-                        boost += 0.10
-                else:
-                    boost += 0.08  # reduced: dima806 FP without signal corroboration
-            # Block artifacts strongly indicate re-encoded deepfake
+            if "skin_tone_instability"            in signals: boost += 0.10
+            if "gan_spectral_fingerprint"         in signals: boost += 0.12
+            if "eye_region_gan_artifact"          in signals: boost += 0.10
+            if "face_blending_seam"               in signals: boost += 0.08
+            if "enhanced_blending_seam"           in signals: boost += 0.18
+            if "ela_recompression_artifact"       in signals: boost += 0.12
+            if "chromatic_aberration_anomaly"     in signals: boost += 0.08
+            if "noise_pattern_inconsistency"      in signals: boost += 0.10
+            if "color_channel_decoupled"          in signals: boost += 0.08
+            if "dct_coefficient_anomaly"          in signals: boost += 0.10
+            if "wavelet_texture_artifact"         in signals: boost += 0.08
             if "reencoding_block_artifacts"       in signals: boost += 0.08
-            # Eye region and channel decoupling are reliable GAN indicators
-            if "eye_region_gan_artifact"          in signals: boost += 0.06
-            # V2 signal boost (only enhanced_blending_seam is active as a trigger)
-            if "enhanced_blending_seam"           in signals: boost += 0.15
-            boost = min(boost, 0.45)
+            if "gan_ensemble_model_used"          in signals:
+                NON_CIRCULAR = {"gan_spectral_fingerprint", "eye_region_gan_artifact",
+                                "enhanced_blending_seam", "ela_recompression_artifact",
+                                "noise_pattern_inconsistency"}
+                if len(set(signals) & NON_CIRCULAR) >= 1:
+                    boost += 0.15
+                else:
+                    boost += 0.08
+            boost = min(boost, 0.50)
     elif has_faces:
-        # Signal-only fallback with faces: all signals count
-        if "gan_spectral_fingerprint"    in signals: boost += 0.15
-        if "face_blending_seam"          in signals: boost += 0.12
-        if "eye_region_gan_artifact"     in signals: boost += 0.12
-        if "unnatural_face_texture"      in signals: boost += 0.08
-        if "color_channel_decoupled"     in signals: boost += 0.08
-        if "oversmoothed_skin_detected"  in signals: boost += 0.08
-        if "oversmoothed_blur_artifact"  in signals: boost += 0.08
-        if "abnormal_noise_pattern"      in signals: boost += 0.06
-        if "reencoding_block_artifacts"  in signals: boost += 0.06
-        # V2 signal boost (only enhanced_blending_seam is active as a trigger)
-        if "enhanced_blending_seam"      in signals: boost += 0.15
-        boost = min(boost, 0.50)
+        if "gan_spectral_fingerprint"    in signals: boost += 0.18
+        if "face_blending_seam"          in signals: boost += 0.15
+        if "enhanced_blending_seam"      in signals: boost += 0.20
+        if "eye_region_gan_artifact"     in signals: boost += 0.15
+        if "ela_recompression_artifact"  in signals: boost += 0.15
+        if "noise_pattern_inconsistency" in signals: boost += 0.12
+        if "chromatic_aberration_anomaly" in signals: boost += 0.10
+        if "unnatural_face_texture"      in signals: boost += 0.10
+        if "color_channel_decoupled"     in signals: boost += 0.10
+        if "dct_coefficient_anomaly"     in signals: boost += 0.12
+        if "wavelet_texture_artifact"    in signals: boost += 0.10
+        if "oversmoothed_skin_detected"  in signals: boost += 0.10
+        if "oversmoothed_blur_artifact"  in signals: boost += 0.10
+        if "abnormal_noise_pattern"      in signals: boost += 0.08
+        if "reencoding_block_artifacts"  in signals: boost += 0.08
+        boost = min(boost, 0.55)
     else:
-        # Signal-only fallback, no face detected: only boost on genuinely
-        # deepfake-specific signals (not JPEG/noise artifacts from full frame).
-        if "gan_spectral_fingerprint"   in signals: boost += 0.10
-        if "color_channel_decoupled"    in signals: boost += 0.06
-        if "wavelet_texture_artifact"  in signals: boost += 0.06
-        boost = min(boost, 0.25)
+        if "gan_spectral_fingerprint"   in signals: boost += 0.12
+        if "color_channel_decoupled"    in signals: boost += 0.08
+        if "ela_recompression_artifact" in signals: boost += 0.10
+        if "wavelet_texture_artifact"   in signals: boost += 0.08
+        boost = min(boost, 0.30)
 
     final_score = float(np.clip(final_score + boost, 0.0, 1.0))
 
@@ -1820,17 +2119,12 @@ def _build_result(model_score, artifact_score, temporal_score,
         )
     final_score = float(np.clip(final_score, 0.0, 1.0))
 
-    # ── Video-specific tighter rejection threshold ─────────────────────────
-    # Videos (reels) uploaded by bad actors are more likely deepfakes.
-    # Use a tighter rejection threshold (0.60) for videos vs images (0.75).
-    # This means deepfake reels scoring 0.60+ are REJECTED instead of UNDER_REVIEW.
-    # Real videos with genuine temporal artifacts rarely exceed 0.55.
     if is_video:
-        threshold_reject  = 0.62  # tighter for videos (vs 0.75 for images)
-        threshold_approve = THRESHOLD_APPROVE  # same 0.40 for real video approval
+        threshold_reject  = 0.60
+        threshold_approve = THRESHOLD_APPROVE
     else:
-        threshold_reject  = THRESHOLD_REJECT   # 0.75 for images
-        threshold_approve = THRESHOLD_APPROVE  # 0.40
+        threshold_reject  = THRESHOLD_REJECT
+        threshold_approve = THRESHOLD_APPROVE
 
     if final_score >= threshold_reject:
         verdict = "REJECTED"
@@ -1860,7 +2154,7 @@ def _build_result(model_score, artifact_score, temporal_score,
     if onnx_score is not None:
         result["onnx_model_score"] = round(float(onnx_score), 4)
     if is_video:
-        result["video_threshold_reject"] = 0.62
+        result["video_threshold_reject"] = 0.60
 
     return result
 
