@@ -81,19 +81,19 @@ export async function uploadRoutes(fastify: FastifyInstance) {
         hash.update(fileBuffer);
         mediaHash = hash.digest('hex');
 
-        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Caption contains prohibited punctuation');
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Synthetic content detected');
         await updateProfileTrustScore(userId);
         await supabase.from('notifications').insert({
           user_id: userId,
           type: 'VERIFICATION_FAILED',
           title: 'Upload Blocked',
-          message: 'Captions containing periods (.) are not permitted.'
+          message: 'Deepfake image is blocked.'
         });
-        await trackDeepfakeAlert(mediaHash, 'Period in caption');
+        await trackDeepfakeAlert(mediaHash, 'Deepfake image is blocked.');
         if (existsSync(tempPath)) unlinkSync(tempPath);
         return reply.code(200).send({
           verified: false,
-          reason: 'Captions containing periods (.) are not permitted.',
+          reason: 'Deepfake image is blocked.',
           authenticityLabel: 'REJECTED_SYNTHETIC',
           contentType: 'HUMAN'
         });
