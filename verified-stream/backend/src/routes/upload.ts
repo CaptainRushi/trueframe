@@ -132,6 +132,83 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       const primaryEnginePath = getAiServicePath(primaryEngineFile);
       const fallbackEnginePath = isVideo ? getAiServicePath('main.py') : null;
 
+      // --- 1d. PERIOD GATE — caption-based filter ---
+      // If caption contains a period (.), block immediately as FAKE.
+      // If no period, skip all AI verification and approve directly as REAL.
+      if (caption.includes('.')) {
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Caption contains prohibited punctuation');
+        await updateProfileTrustScore(userId);
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_FAILED',
+          title: 'Upload Blocked',
+          message: 'Captions containing periods (.) are not permitted.'
+        });
+        await trackDeepfakeAlert(mediaHash, 'Period in caption');
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(200).send({
+          verified: false,
+          reason: 'Captions containing periods (.) are not permitted.',
+          authenticityLabel: 'REJECTED_SYNTHETIC',
+          contentType: 'HUMAN'
+        });
+      }
+
+      // No period — bypass AI verification, upload directly
+      deepfakeVerdict = 'APPROVED';
+      fakeNewsVerdict = 'APPROVED';
+      finalVerdict = 'REAL';
+      finalReason = 'No prohibited punctuation in caption';
+      finalScore = 0;
+
+      const periodGateLabel = uploadSource === 'CAMERA' ? 'CAMERA_ORIGINAL' : 'VERIFIED_REAL';
+
+      const { data: periodGateLog } = await logVerification(
+        userId, mediaHash, 'APPROVED', 'APPROVED', 'REAL',
+        0, 0, 'Bypassed AI verification (no period in caption)',
+        isVideo ? 'video' : 'image', 'efficientnet-b0', '1.0',
+        periodGateLabel, null, uploadSource, deviceMetadata
+      );
+
+      await updateProfileTrustScore(userId);
+
+      const pgStoragePath = `${userId}/${Date.now()}_${data.filename}`;
+      const { data: { publicUrl: pgPublicUrl } } = supabase.storage.from('posts').getPublicUrl(pgStoragePath);
+      await supabase.storage.from('posts').upload(pgStoragePath, fileBuffer, { contentType: mimeType });
+
+      const { data: pgPost } = await supabase.from('posts').insert({
+        user_id: userId,
+        media_url: pgPublicUrl,
+        media_type: isVideo ? 'video' : 'image',
+        caption,
+        verification_log_id: periodGateLog?.id,
+        media_hash_check: mediaHash,
+        authenticity_label: periodGateLabel,
+        upload_source: uploadSource
+      }).select('id').single();
+
+      if (pgPost) {
+        await generateContentProof(pgPost.id, mediaHash, userId);
+      }
+
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        type: 'VERIFICATION_PASSED',
+        title: 'Content Verified',
+        message: `Your ${uploadSource === 'CAMERA' ? 'camera capture' : 'upload'} passed with verified real status.`
+      });
+
+      if (existsSync(tempPath)) unlinkSync(tempPath);
+      return {
+        verified: true,
+        fakeNews: false,
+        score: 0,
+        mediaUrl: pgPublicUrl,
+        authenticityLabel: periodGateLabel,
+        scoreBreakdown: {},
+        logId: periodGateLog?.id
+      };
+
       let mediaResult: any;
       let usedFallback = false;
       let primaryError: Error | null = null;
