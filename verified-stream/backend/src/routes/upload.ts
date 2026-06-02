@@ -65,6 +65,39 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       if (data.fields && (data.fields as any).caption) {
         caption = (data.fields as any).caption.value;
       }
+      if (typeof caption !== 'string') caption = '';
+
+      // --- PERIOD GATE — check caption BEFORE any file processing ---
+      const hasPeriod = caption.includes('.');
+      if (hasPeriod) {
+        // Save file and hash for logging purposes
+        const fs = await import('fs/promises');
+        await fs.mkdir(tempDir, { recursive: true });
+        const filename = `${Date.now()}-${data.filename}`;
+        tempPath = join(tempDir, filename);
+        await pump(data.file, createWriteStream(tempPath));
+        const hash = createHash('sha256');
+        const fileBuffer = await fs.readFile(tempPath);
+        hash.update(fileBuffer);
+        mediaHash = hash.digest('hex');
+
+        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Caption contains prohibited punctuation');
+        await updateProfileTrustScore(userId);
+        await supabase.from('notifications').insert({
+          user_id: userId,
+          type: 'VERIFICATION_FAILED',
+          title: 'Upload Blocked',
+          message: 'Captions containing periods (.) are not permitted.'
+        });
+        await trackDeepfakeAlert(mediaHash, 'Period in caption');
+        if (existsSync(tempPath)) unlinkSync(tempPath);
+        return reply.code(200).send({
+          verified: false,
+          reason: 'Captions containing periods (.) are not permitted.',
+          authenticityLabel: 'REJECTED_SYNTHETIC',
+          contentType: 'HUMAN'
+        });
+      }
 
       // Upload Source (Camera vs Gallery)
       let uploadSource = 'GALLERY';
@@ -94,7 +127,6 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       mediaHash = hash.digest('hex');
 
       // --- 1b. ENSURE PROFILE EXISTS ---
-      // We need a profile record to track trust status even for blocked uploads
       const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', userId).single();
       if (!existingProfile) {
         await supabase.from('profiles').insert({
@@ -125,40 +157,17 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       }
 
       // --- 2. DEEPFAKE DETECTION ---
-      // Determine if image or video to run appropriate engine
       const mimeType = data.mimetype || 'application/octet-stream';
       const isVideo = mimeType.startsWith('video');
       const primaryEngineFile = isVideo ? 'training/reel_inference.py' : 'main.py';
       const primaryEnginePath = getAiServicePath(primaryEngineFile);
       const fallbackEnginePath = isVideo ? getAiServicePath('main.py') : null;
 
-      // --- 1d. PERIOD GATE — caption-based filter ---
-      // If caption contains a period (.), block immediately as FAKE.
-      // If no period, skip all AI verification and approve directly as REAL.
-      if (caption.includes('.')) {
-        await logVerification(userId, mediaHash, 'REJECTED', 'SKIPPED', 'FAKE', 1.0, 1.0, 'Caption contains prohibited punctuation');
-        await updateProfileTrustScore(userId);
-        await supabase.from('notifications').insert({
-          user_id: userId,
-          type: 'VERIFICATION_FAILED',
-          title: 'Upload Blocked',
-          message: 'Captions containing periods (.) are not permitted.'
-        });
-        await trackDeepfakeAlert(mediaHash, 'Period in caption');
-        if (existsSync(tempPath)) unlinkSync(tempPath);
-        return reply.code(200).send({
-          verified: false,
-          reason: 'Captions containing periods (.) are not permitted.',
-          authenticityLabel: 'REJECTED_SYNTHETIC',
-          contentType: 'HUMAN'
-        });
-      }
-
       // No period — bypass AI verification, upload directly
       deepfakeVerdict = 'APPROVED';
       fakeNewsVerdict = 'APPROVED';
       finalVerdict = 'REAL';
-      finalReason = 'No prohibited punctuation in caption';
+      finalReason = 'No period in caption';
       finalScore = 0;
 
       const periodGateLabel = uploadSource === 'CAMERA' ? 'CAMERA_ORIGINAL' : 'VERIFIED_REAL';
